@@ -1,8 +1,8 @@
 BOT_TOKENS = {
-    "shibanoy": "REPLACE_WITH_TOKEN_1",
-    "giantjiw": "REPLACE_WITH_TOKEN_2",
-    "p_tyretkc": "REPLACE_WITH_TOKEN_3",
-    "tex_speed": "REPLACE_WITH_TOKEN_4"
+    "shibanoy": "7517424701:AAEkE7bmCy-v7wR4esVJRuDX8tkeyiquSSI",
+    "giantjiw": "7660238907:AAE5mAE0XZqcWdEn2kMFlTR8un94d4oRLwk",
+    "p_tyretkc": "8029492335:AAERvbsWOojRul0y1u1ZYwjFdyT7smp5U8E",
+    "tex_speed": "7426078648:AAEsTxPG37VqO8m61YeC3OVOfLvVvypwQw8"
 }
 
 OPENAI_API_KEY = "REPLACE_WITH_YOUR_OPENAI_API_KEY"
