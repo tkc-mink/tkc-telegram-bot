@@ -5,7 +5,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 from config.tokens import BOT_TOKENS, OPENAI_API_KEY
 import openai
 
-# ตั้งค่า logger ให้แสดงข้อมูลแบบละเอียด
+# Logging สำหรับ debug เต็ม
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -47,10 +47,10 @@ async def main():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         await app.initialize()
-        logger.info(f"✅ [พร้อมใช้งาน] เริ่ม polling สำหรับ: {name}")
         bots.append(app)
 
-    await asyncio.gather(*[bot.updater.start_polling() for bot in bots])
+    # ใช้ start() แทน start_polling() สำหรับ PTB v20+
+    await asyncio.gather(*[bot.start() for bot in bots])
 
 if __name__ == "__main__":
     asyncio.run(main())
