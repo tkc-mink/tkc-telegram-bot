@@ -1,13 +1,8 @@
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
 BOT_TOKENS = {
-    'shibanoy': os.getenv("BOT_TOKEN_SHIBANOY"),
-    'giantjiw': os.getenv("BOT_TOKEN_GIANTJIW"),
-    'p_tyretkc': os.getenv("BOT_TOKEN_P_TYRETKC"),
-    'tex_speed': os.getenv("BOT_TOKEN_TEX_SPEED"),
+    "shibanoy": "ใส่_TOKEN_ของ_ชิบะน้อย_TKC",
+    "giant": "ใส่_TOKEN_ของ_ไจแอนท์จิ๋ว",
+    "prime": "ใส่_TOKEN_ของ_พี่ไทร์_TKC",
+    "speed": "ใส่_TOKEN_ของ_น้องสปีด_TKC"
 }
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = "ใส่_API_KEY_ของคุณ"

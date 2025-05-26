@@ -1,44 +1,52 @@
 import os
 import asyncio
-from telegram.ext import ApplicationBuilder, MessageHandler, filters
-from config.tokens import BOT_TOKENS, OPENAI_API_KEY
 import openai
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from config.tokens import BOT_TOKENS, OPENAI_API_KEY
 
-async def gpt_response(message: str) -> str:
+openai.api_key = OPENAI_API_KEY
+
+async def ask_gpt(message: str) -> str:
     try:
         response = await openai.ChatCompletion.acreate(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": message}],
+            messages=[
+                {"role": "system", "content": "คุณคือผู้ช่วยที่สุภาพและให้คำตอบอย่างกระชับ"},
+                {"role": "user", "content": message}
+            ],
+            temperature=0.7,
+            max_tokens=800,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"❗ GPT Error: {str(e)}"
+        return f"เกิดข้อผิดพลาดขณะเรียก GPT: {str(e)}"
 
-async def handle_message(update, context):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    user_id = update.effective_user.id
-    response = await gpt_response(user_message)
-    await update.message.reply_text(f"💬 GPT: {response}")
+    reply = await ask_gpt(user_message)
+    await update.message.reply_text(reply)
 
-async def start_bot(name, token):
-    print(f"🚀 Starting GPT bot: {name}")
+WEBHOOK_BASE_URL = os.getenv("WEBHOOK_URL")
+
+async def run_bot(token, bot_name):
     app = ApplicationBuilder().token(token).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    print(f"✅ Starting GPT bot: {bot_name}")
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 8443)),
+        webhook_url=f"{WEBHOOK_BASE_URL}/{token}",
+        secret_token=token
+    )
 
 async def main():
+    print("🚀 Initializing all GPT bots...")
     tasks = []
-    for name, token in BOT_TOKENS.items():
-        if token:
-            tasks.append(start_bot(name, token))
-    if not tasks:
-        print("❗ No bot tokens found.")
-        return
+    for bot_name, token in BOT_TOKENS.items():
+        print(f"▶️ Launching bot: {bot_name}")
+        tasks.append(asyncio.create_task(run_bot(token, bot_name)))
     await asyncio.gather(*tasks)
-    print("✅ All GPT bots deployed.")
 
-if __name__ == "__main__":
-    openai.api_key = OPENAI_API_KEY
+if __name__ == '__main__':
     asyncio.run(main())
