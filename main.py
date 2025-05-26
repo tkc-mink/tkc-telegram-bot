@@ -5,7 +5,7 @@ from config.tokens import BOT_TOKENS, OPENAI_API_KEY
 import openai
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"สวัสดีจากบอท {context.bot.username} 👋")
+    await update.message.reply_text(f"สวัสดีจากบอท {context.bot.username} 🐶")
 
 async def chatgpt_reply(text: str) -> str:
     openai.api_key = OPENAI_API_KEY
@@ -34,7 +34,9 @@ def get_bot_apps():
 
 async def main():
     bots = get_bot_apps()
-    await asyncio.gather(*[app.initialize() or app.start() or app.updater.start_polling() for app in bots])
+    for app in bots:
+        await app.initialize()
+        await app.start()
 
 if __name__ == "__main__":
     asyncio.run(main())
