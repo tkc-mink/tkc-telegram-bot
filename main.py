@@ -23,20 +23,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = await chatgpt_reply(user_message)
     await update.message.reply_text(reply)
 
-def get_bot_apps():
-    apps = []
+async def main():
     for name, token in BOT_TOKENS.items():
         app = ApplicationBuilder().token(token).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        apps.append(app)
-    return apps
-
-async def main():
-    bots = get_bot_apps()
-    for app in bots:
         await app.initialize()
-        await app.start()
+        await app.updater.start_polling()
+        # NOTE: ไม่ใช้ await app.start() เพราะ Render ไม่รองรับ Webhook background
 
 if __name__ == "__main__":
     asyncio.run(main())
