@@ -2,7 +2,7 @@ import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "7774250343:AAHuDwy-nd1obytZL1C-2PhsDAVDZs7W4I"
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "7774250343:AAHgBfWaZHEkFNRJ4_IXHy15LbL-XVQZzBs"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("สวัสดีครับ! บอท TKC Assistant พร้อมใช้งานแล้ว 🎉")
