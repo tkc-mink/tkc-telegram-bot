@@ -14,8 +14,9 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.method == "POST":
+    if request.method == "POST":    
         data = request.get_json()
+        print("DATA:", data)
         if "message" in data:
             chat_id = data["message"]["chat"]["id"]
             text = data["message"].get("text", "")
