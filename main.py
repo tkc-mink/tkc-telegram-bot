@@ -5,7 +5,7 @@ import logging
 
 # --- ENVIRONMENT CONFIG ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-APP_URL = os.environ.get("APP_URL")  # เช่น https://tkc-telegram-bot-worker.onrender.com
+APP_URL = os.environ.get("APP_URL")  # เช่น https://your-app-name.onrender.com
 WEBHOOK_PATH = "/webhook"
 FULL_WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}"
 
@@ -13,11 +13,6 @@ FULL_WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}"
 bot = Bot(token=BOT_TOKEN)
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
-
-# --- DEFAULT ROUTE ---
-@app.route('/')
-def index():
-    return "TKC Assistant is running!"
 
 # --- WEBHOOK ROUTE ---
 @app.route(WEBHOOK_PATH, methods=["POST"])
@@ -38,13 +33,18 @@ def webhook():
         logging.error(f"Error in webhook: {e}")
         return "error", 500
 
-# --- SET WEBHOOK ---
-@app.before_first_request
-def set_webhook():
-    bot.delete_webhook()
-    bot.set_webhook(url=FULL_WEBHOOK_URL)
-    logging.info(f"✅ Webhook ถูกตั้งที่: {FULL_WEBHOOK_URL}")
+# --- DEFAULT ROUTE ---
+@app.route('/')
+def index():
+    return "TKC Assistant is running!"
 
-# --- RUN FLASK APP ---
+# --- SET WEBHOOK ON SERVER START ---
 if __name__ == '__main__':
+    try:
+        bot.delete_webhook()
+        bot.set_webhook(url=FULL_WEBHOOK_URL)
+        logging.info(f"✅ Webhook ถูกตั้งที่: {FULL_WEBHOOK_URL}")
+    except Exception as e:
+        logging.error(f"❌ ไม่สามารถตั้ง webhook ได้: {e}")
+
     app.run(host="0.0.0.0", port=8080)
