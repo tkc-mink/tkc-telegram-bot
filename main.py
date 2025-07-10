@@ -1,44 +1,51 @@
 import os
-from flask import Flask, request
 import telebot
+from flask import Flask, request
 from dotenv import load_dotenv
 
-# โหลดค่าตัวแปรจาก .env หรือ Environment บน Render
+# โหลดค่าจาก .env (กรณีทดสอบในเครื่อง)
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH") or "/webhook"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL") or f"{os.getenv('APP_URL')}{WEBHOOK_PATH}"
 
-bot = telebot.TeleBot(BOT_TOKEN)
+API_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
+
+# ตรวจสอบความพร้อมของ token
+if not API_TOKEN:
+    raise ValueError("BOT_TOKEN is not set in environment variables")
+
+bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
-# ฟังก์ชันรับข้อความจาก Telegram
-@bot.message_handler(commands=["start"])
-def handle_start(message):
-    bot.reply_to(message, "สวัสดีครับ! บอทพร้อมใช้งานแล้ว 🎉")
+# ฟังก์ชันทักทาย
+@bot.message_handler(commands=['start', 'hello'])
+def send_welcome(message):
+    bot.reply_to(message, "สวัสดีครับ! ผมคือบอทของ TKC พร้อมให้บริการครับ 😊")
 
+# ตัวอย่างฟังก์ชันโต้ตอบอื่น ๆ
 @bot.message_handler(func=lambda message: True)
-def handle_message(message):
+def echo_all(message):
     bot.reply_to(message, f"คุณพิมพ์ว่า: {message.text}")
 
-# Flask route สำหรับ Webhook
-@app.route(WEBHOOK_PATH, methods=["POST"])
+# Webhook Endpoint
+@app.route(WEBHOOK_PATH, methods=['POST'])
 def webhook():
-    if request.headers.get("content-type") == "application/json":
-        json_string = request.get_data().decode("utf-8")
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return "OK", 200
+    if request.headers.get('content-type') == 'application/json':
+        try:
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return '', 200
+        except Exception as e:
+            return f"Error: {str(e)}", 400
     else:
-        return "Invalid content-type", 403
+        return 'Unsupported Media Type', 415
 
-# ตั้งค่า Webhook ตอนเริ่มระบบ
-if __name__ == "__main__":
-    # เคลียร์ webhook เก่าก่อน (เผื่อเคยตั้งไว้แล้ว)
-    bot.remove_webhook()
+# สำหรับระบบภายนอก (ping เช็คว่า App ยังทำงานอยู่)
+@app.route("/", methods=['GET'])
+def index():
+    return "✅ Bot is running and ready to receive webhook.", 200
 
-    # ตั้งค่า webhook ใหม่
-    bot.set_webhook(url=WEBHOOK_URL)
-
-    # รัน Flask app
-    app.run(host="0.0.0.0", port=5000)
+# Run the Flask app
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host="0.0.0.0", port=port)
