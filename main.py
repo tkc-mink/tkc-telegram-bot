@@ -1,40 +1,44 @@
 import os
-import telebot
 from flask import Flask, request
+import telebot
+from dotenv import load_dotenv
 
+# โหลดค่าตัวแปรจาก .env หรือ Environment บน Render
+load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH") or "/webhook"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL") or f"{os.getenv('APP_URL')}{WEBHOOK_PATH}"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-# =========================
-# Handler พื้นฐาน
-# =========================
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "สวัสดีครับ ผมคือบอทของกลุ่มตระกูลชัย พร้อมรับใช้ครับ")
+# ฟังก์ชันรับข้อความจาก Telegram
+@bot.message_handler(commands=["start"])
+def handle_start(message):
+    bot.reply_to(message, "สวัสดีครับ! บอทพร้อมใช้งานแล้ว 🎉")
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     bot.reply_to(message, f"คุณพิมพ์ว่า: {message.text}")
 
-# =========================
-# Webhook Endpoint
-# =========================
-@app.route('/webhook', methods=['POST'])
+# Flask route สำหรับ Webhook
+@app.route(WEBHOOK_PATH, methods=["POST"])
 def webhook():
-    update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-    bot.process_new_updates([update])
-    return 'ok', 200
+    if request.headers.get("content-type") == "application/json":
+        json_string = request.get_data().decode("utf-8")
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "OK", 200
+    else:
+        return "Invalid content-type", 403
 
-# =========================
-# Run Flask App + Set Webhook
-# =========================
+# ตั้งค่า Webhook ตอนเริ่มระบบ
 if __name__ == "__main__":
-    # ตั้งค่า webhook ที่นี่ (เพราะ before_first_request ใช้ไม่ได้ใน Render)
+    # เคลียร์ webhook เก่าก่อน (เผื่อเคยตั้งไว้แล้ว)
     bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
-    # รัน Flask App (สำหรับ Local Testing หรือ Render Web Service)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # ตั้งค่า webhook ใหม่
+    bot.set_webhook(url=WEBHOOK_URL)
+
+    # รัน Flask app
+    app.run(host="0.0.0.0", port=5000)
