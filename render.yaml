@@ -1,12 +1,12 @@
 services:
   - type: web
-    name: tkc-telegram-bot
+    name: tkc-telegram-bot-worker
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
-        sync: false
-      - key: APP_URL
-        sync: false
+        value: ใส่ Token ที่นี่หรือใช้ใน Dashboard ก็ได้
+      - key: WEBHOOK_URL
+        value: https://your-app-name.onrender.com
