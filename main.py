@@ -43,13 +43,15 @@ def send_message(chat_id, text):
     }
     requests.post(url, json=payload)
 
-# ✅ เรียก setWebhook ทันทีเมื่อรันเซิร์ฟเวอร์
-def set_webhook():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
-    response = requests.get(url, params={"url": WEBHOOK_URL})
-    print("Set webhook response:", response.text)
-
 # ✅ เงื่อนไขนี้จะทำงานเมื่อใช้ `python main.py` (สำหรับ local หรือ debug เท่านั้น)
 if __name__ == "__main__":
     set_webhook()
     app.run(debug=False)
+
+def set_webhook():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+    payload = {
+        "url": WEBHOOK_URL
+    }
+    response = requests.post(url, json=payload)
+    print("🚀 Set webhook response:", response.text)
