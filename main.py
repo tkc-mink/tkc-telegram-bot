@@ -1,35 +1,31 @@
-import os
-import requests
 from flask import Flask, request
-from dotenv import load_dotenv
-
-load_dotenv()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", APP_URL + WEBHOOK_PATH)
+import requests
+import os
 
 app = Flask(__name__)
 
-# เรียกตั้งค่า webhook ทันทีหลังสร้างแอป
-with app.app_context():
-    try:
-        set_webhook()
-    except Exception as e:
-        print("❌ Set webhook failed:", e)
+# ตั้งค่าจาก environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # URL ที่ตั้ง webhook ไว้
 
-@app.route("/webhook", methods=["POST"])
-def telegram_webhook():
-    
+@app.route('/')
+def home():
+    return 'Bot is running!', 200
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
     data = request.get_json()
-    print("🔁 Incoming data:", data)  # เพิ่มบรรทัดนี้
+    print("📥 Incoming data:", data)  # debug log
+
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         message_text = data["message"].get("text", "")
-        print("📨 Got message:", message_text)  # เพิ่มบรรทัดนี้
+
+        print("📨 Got message:", message_text)  # debug log
+
         reply_text = handle_message(message_text)
         send_message(chat_id, reply_text)
+
     return "ok", 200
 
 def handle_message(text):
@@ -43,15 +39,16 @@ def send_message(chat_id, text):
     }
     requests.post(url, json=payload)
 
-# ✅ เงื่อนไขนี้จะทำงานเมื่อใช้ `python main.py` (สำหรับ local หรือ debug เท่านั้น)
-if __name__ == "__main__":
-    set_webhook()
-    app.run(debug=False)
-
+# ฟังก์ชันสำหรับตั้ง webhook (รันครั้งเดียวเพื่อเชื่อมกับ Telegram)
 def set_webhook():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
     payload = {
         "url": WEBHOOK_URL
     }
     response = requests.post(url, json=payload)
-    print("🚀 Set webhook response:", response.text)
+    print("✅ Set webhook response:", response.text)
+
+# เรียกใช้เมื่อรันด้วย python main.py (debug หรือ local เท่านั้น)
+if __name__ == "__main__":
+    set_webhook()
+    app.run(debug=True)
