@@ -12,8 +12,16 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", APP_URL + WEBHOOK_PATH)
 
 app = Flask(__name__)
 
+# เรียกตั้งค่า webhook ทันทีหลังสร้างแอป
+with app.app_context():
+    try:
+        set_webhook()
+    except Exception as e:
+        print("❌ Set webhook failed:", e)
+
 @app.route(WEBHOOK_PATH, methods=["POST"])
 def telegram_webhook():
+    
     data = request.get_json()
     print("🔁 Incoming data:", data)  # เพิ่มบรรทัดนี้
     if "message" in data:
