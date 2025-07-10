@@ -1,42 +1,56 @@
 import os
+import logging
+from dotenv import load_dotenv
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Dispatcher
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-TOKEN = os.environ.get("BOT_TOKEN") or "ใส่โทเคนตรงนี้ก็ได้ถ้าไม่ใช้ .env"
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # เช่น https://your-bot-name.onrender.com/webhook
+# โหลดค่า .env
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+APP_URL = os.getenv("APP_URL")  # เช่น https://tkc-telegram-bot.onrender.com
+WEBHOOK_PATH = "/webhook"      # หรือจะเปลี่ยน path ก็ได้ เช่น /tkc-webhook
 
+# ตั้งค่า logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Telegram bot setup
 app = Flask(__name__)
-application = ApplicationBuilder().token(TOKEN).build()
-dispatcher: Dispatcher = application
+telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# --- คำสั่งเริ่มต้น /start
+# --- Handler พื้นฐาน ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("สวัสดีครับ! ผมคือ TKC Assistant พร้อมใช้งานแล้ว 🐶")
+    await update.message.reply_text("สวัสดีครับ 🙏 บอทกลุ่มตระกูลชัยพร้อมใช้งานแล้ว!")
 
-# --- คำสั่ง /help
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("ใช้คำสั่ง /start หรือพิมพ์ข้อความมาคุยกับผมได้เลยครับ")
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    await update.message.reply_text(f"คุณพิมพ์ว่า: {user_message}")
 
-# --- ใส่ Handler
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("help", help_command))
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# --- Webhook Endpoint
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    application.update_queue.put(update)
-    return "OK", 200
+# --- Webhook endpoint ---
+@app.route(WEBHOOK_PATH, methods=["POST"])
+async def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, telegram_app.bot)
+    await telegram_app.process_update(update)
+    return "ok"
 
-# --- Root test
-@app.route("/", methods=["GET"])
-def home():
-    return "TKC Bot is running via Webhook (Flask)", 200
+# --- Set Webhook เมื่อเริ่มต้น (ครั้งเดียว) ---
+@app.before_first_request
+def init_webhook():
+    full_url = f"{APP_URL}{WEBHOOK_PATH}"
+    telegram_app.bot.set_webhook(url=full_url)
+    logger.info(f"✅ Webhook ถูกตั้งเรียบร้อยที่: {full_url}")
 
-if __name__ == '__main__':
-    import telegram
-    bot = telegram.Bot(token=TOKEN)
-    bot.set_webhook(url=WEBHOOK_URL + "/webhook")
-    print("Webhook set!")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+# --- รัน Flask ---
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
