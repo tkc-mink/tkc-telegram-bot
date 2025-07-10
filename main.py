@@ -1,48 +1,39 @@
 import os
-import logging
-import asyncio
 from flask import Flask, request
-from telebot.async_telebot import AsyncTeleBot
-from telebot.types import Update
+import telebot
+from dotenv import load_dotenv
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")  # เช่น https://ชื่อโดเมน.onrender.com
-WEBHOOK_PATH = "/webhook"
-FULL_WEBHOOK_URL = f"{APP_URL}{WEBHOOK_PATH}"
+# โหลดตัวแปรจาก .env
+load_dotenv()
 
-bot = AsyncTeleBot(BOT_TOKEN)
+API_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
-async def webhook():
-    try:
-        data = request.get_json(force=True)
-        update = Update.de_json(data, bot)
-        await bot.process_new_updates([update])
-        return "ok", 200
-    except Exception as e:
-        logging.error(f"❌ Error in webhook: {e}")
-        return "error", 500
+# --- ส่วนที่ Telegram ส่งข้อมูลมาที่เซิร์ฟเวอร์เราผ่าน webhook ---
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode("utf-8")
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return 'Invalid content type', 403
 
-@app.route("/")
-def index():
-    return "✅ TKC Assistant is alive!"
+# --- คำสั่งหลักของ Bot ---
+@bot.message_handler(func=lambda message: True)
+def echo_message(message):
+    bot.reply_to(message, f"คุณพิมพ์ว่า: {message.text}")
 
-@bot.message_handler(commands=["start"])
-async def handle_start(message):
-    await bot.send_message(message.chat.id, "🎉 สวัสดีครับ! บอท TKC Assistant พร้อมใช้งานแล้ว")
+# --- ตั้ง webhook เมื่อแอปรันครั้งแรก ---
+@app.before_first_request
+def setup_webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
-@bot.message_handler(func=lambda m: True)
-async def handle_all(message):
-    await bot.send_message(message.chat.id, f"คุณพิมพ์ว่า: {message.text}")
-
-async def setup_webhook():
-    await bot.delete_webhook()
-    await bot.set_webhook(url=FULL_WEBHOOK_URL)
-    logging.info(f"✅ Webhook ตั้งค่าแล้วที่: {FULL_WEBHOOK_URL}")
-
+# --- รัน Flask ---
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(setup_webhook())
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=10000, debug=True)
