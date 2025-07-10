@@ -19,7 +19,7 @@ with app.app_context():
     except Exception as e:
         print("❌ Set webhook failed:", e)
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def telegram_webhook():
     
     data = request.get_json()
