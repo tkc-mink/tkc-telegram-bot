@@ -4,9 +4,8 @@ import os
 
 app = Flask(__name__)
 
-# ตั้งค่าจาก environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # URL ที่ตั้ง webhook ไว้
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 @app.route('/')
 def home():
@@ -15,13 +14,12 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    print("📥 Incoming data:", data)  # debug log
+    print("📥 Incoming data:", data)
 
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
         message_text = data["message"].get("text", "")
-
-        print("📨 Got message:", message_text)  # debug log
+        print("📨 Got message:", message_text)
 
         reply_text = handle_message(message_text)
         send_message(chat_id, reply_text)
@@ -39,7 +37,6 @@ def send_message(chat_id, text):
     }
     requests.post(url, json=payload)
 
-# ฟังก์ชันสำหรับตั้ง webhook (รันครั้งเดียวเพื่อเชื่อมกับ Telegram)
 def set_webhook():
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
     payload = {
@@ -48,7 +45,6 @@ def set_webhook():
     response = requests.post(url, json=payload)
     print("✅ Set webhook response:", response.text)
 
-# เรียกใช้เมื่อรันด้วย python main.py (debug หรือ local เท่านั้น)
 if __name__ == "__main__":
     set_webhook()
     app.run(debug=True)
