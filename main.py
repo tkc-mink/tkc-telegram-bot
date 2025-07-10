@@ -3,7 +3,7 @@ from flask import Flask, request
 import requests
 from dotenv import load_dotenv
 
-# โหลดตัวแปรจาก .env หรือ Environment ของ Render
+# โหลด ENV
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -12,13 +12,6 @@ WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = APP_URL + WEBHOOK_PATH
 
 app = Flask(__name__)
-
-# ตั้งค่า Webhook อัตโนมัติเมื่อรันเซิร์ฟเวอร์
-@app.before_first_request
-def setup_webhook():
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
-    response = requests.get(url)
-    print("Setting webhook:", response.json())
 
 # เส้นทางที่ Telegram จะเรียกมา
 @app.route(WEBHOOK_PATH, methods=["POST"])
@@ -45,11 +38,17 @@ def send_message(chat_id, text):
     payload = {"chat_id": chat_id, "text": text}
     requests.post(url, json=payload)
 
-# สำหรับรันทดสอบ (เช่น local)
+# ฟังก์ชันตั้งค่า Webhook
+def set_webhook():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
+    response = requests.get(url)
+    print("Setting webhook:", response.json())
+
 @app.route("/", methods=["GET"])
 def index():
     return "Bot is running."
 
-# เงื่อนไขสำหรับรันผ่าน gunicorn หรือ flask
+# แก้ตรงนี้: ย้าย set_webhook มาไว้ใน block นี้แทน before_first_request
 if __name__ == "__main__":
+    set_webhook()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
