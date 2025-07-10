@@ -1,6 +1,6 @@
 import os
-from flask import Flask, request
 import requests
+from flask import Flask, request
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,32 +16,30 @@ app = Flask(__name__)
 def telegram_webhook():
     if request.method == "POST":
         data = request.get_json()
-
         if "message" in data:
             chat_id = data["message"]["chat"]["id"]
             message_text = data["message"].get("text", "")
-
             reply_text = handle_message(message_text)
             send_message(chat_id, reply_text)
-
-    return "ok", 200
+        return "ok", 200
 
 def handle_message(text):
     return f"คุณพิมพ์ว่า: {text}"
 
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
     requests.post(url, json=payload)
 
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot is running."
+# ✅ ตั้งค่า Webhook อัตโนมัติเมื่อเริ่มรัน
+@app.before_first_request
+def set_webhook():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook"
+    response = requests.get(url, params={"url": WEBHOOK_URL})
+    print("Set webhook response:", response.text)
 
-# ตั้ง webhook ทันทีเมื่อแอปรัน
-with app.app_context():
-    try:
-        res = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}")
-        print("Setting webhook:", res.json())
-    except Exception as e:
-        print("Error setting webhook:", e)
+if __name__ == "__main__":
+    app.run(debug=False)
