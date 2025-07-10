@@ -14,14 +14,15 @@ app = Flask(__name__)
 
 @app.route(WEBHOOK_PATH, methods=["POST"])
 def telegram_webhook():
-    if request.method == "POST":
-        data = request.get_json()
-        if "message" in data:
-            chat_id = data["message"]["chat"]["id"]
-            message_text = data["message"].get("text", "")
-            reply_text = handle_message(message_text)
-            send_message(chat_id, reply_text)
-        return "ok", 200
+    data = request.get_json()
+    print("🔁 Incoming data:", data)  # เพิ่มบรรทัดนี้
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+        message_text = data["message"].get("text", "")
+        print("📨 Got message:", message_text)  # เพิ่มบรรทัดนี้
+        reply_text = handle_message(message_text)
+        send_message(chat_id, reply_text)
+    return "ok", 200
 
 def handle_message(text):
     return f"คุณพิมพ์ว่า: {text}"
