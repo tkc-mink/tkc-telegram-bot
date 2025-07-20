@@ -1,12 +1,9 @@
 import requests
-import os
 
-TOKEN = os.getenv("BOT_TOKEN")
-URL = os.getenv("WEBHOOK_URL")
+TOKEN = 'YOUR_TELEGRAM_TOKEN'
+WEBHOOK_URL = f'https://tkc-telegram-bot.onrender.com/webhook'
 
-if not TOKEN or not URL:
-    print("Missing BOT_TOKEN or WEBHOOK_URL")
-else:
-    webhook_url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={URL}/webhook"
-    r = requests.get(webhook_url)
-    print(r.json())
+url = f'https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}'
+
+response = requests.get(url)
+print(response.json())
