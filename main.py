@@ -2,8 +2,18 @@ import os
 import logging
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 import openai
+
+from handlers import handle_message, start_command
+from location_handler import handle_location
+from history_handler import log_user_message
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
@@ -22,42 +32,27 @@ app = Flask(__name__)
 # Create Telegram App
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# Command: /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("สวัสดีครับ! พิมพ์คำถามมาได้เลยนะครับ 😊")
+# Register handlers
+telegram_app.add_handler(CommandHandler("start", start_command))
+telegram_app.add_handler(MessageHandler(filters.LOCATION, handle_location))
+telegram_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-# Handle Message
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "คุณเป็นผู้ช่วยขององค์กรชื่อ TKC Assistant"},
-                {"role": "user", "content": user_message}
-            ]
-        )
-        reply = response.choices[0].message.content
-        await update.message.reply_text(reply)
-    except Exception as e:
-        logging.error(f"OpenAI Error: {e}")
-        await update.message.reply_text("ขออภัยครับ ระบบไม่สามารถตอบได้ในขณะนี้ 🙇")
+# Define webhook route
+@app.route("/webhook", methods=["POST"])
+async def webhook():
+    if request.method == "POST":
+        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+        await telegram_app.process_update(update)
+    return "OK"
 
-# Register Handlers
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-# Webhook route
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    telegram_app.update_queue.put_nowait(update)
-    return 'OK'
-
-# Set webhook when run
+# Set webhook when server starts
 @app.before_first_request
-def set_webhook():
-    telegram_app.bot.set_webhook(WEBHOOK_URL)
+def setup_webhook():
+    from telegram import Bot
+    bot = Bot(BOT_TOKEN)
+    bot.set_webhook(WEBHOOK_URL + "/webhook")
+    print("✅ Webhook set!")
 
-if __name__ == '__main__':
-    app.run(port=5000)
+# Run Flask App
+if __name__ == "__main__":
+    app.run(port=8080)
