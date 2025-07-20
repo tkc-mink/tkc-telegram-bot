@@ -4,6 +4,10 @@ from handlers import handle_message
 
 app = Flask(__name__)
 
+@app.route('/')
+def index():
+    return 'Bot is running!'
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
