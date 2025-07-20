@@ -1,1 +1,1 @@
-web: python main.py
+# Procfile - TKC Assistant Bot Module
