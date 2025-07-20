@@ -27,7 +27,14 @@ def handle_message(data):
         chat_id = message['chat']['id']
         text = message.get('text', '')
         # ตรวจสอบจำนวนครั้งที่ถามวันนี้
-usage = load_usage()
+
+def load_usage():
+    try:
+        with open("usage_log.json", "r") as f:
+            return json.load(f)
+    except Exception as e:
+        return {}
+
 today = datetime.now().strftime("%Y-%m-%d")
 user_id = str(chat_id)
 
