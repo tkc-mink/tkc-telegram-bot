@@ -13,7 +13,7 @@ def load_usage():
     try:
         with open("usage_log.json", "r") as f:
             return json.load(f)
-    except:
+    except Exception as e:
         return {}
 
 # บันทึกจำนวนครั้งลงไฟล์
