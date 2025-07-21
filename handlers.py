@@ -17,7 +17,7 @@ MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY = 15
 
 # เพิ่ม user id admin/owner ที่ไม่ต้องจำกัดรอบ
-EXEMPT_USER_IDS = ["123456789"]  # เช่น chat_id ของคุณชลิต/เจ้าของกิจการ (string)
+EXEMPT_USER_IDS = ["6849909227"]  # เช่น chat_id ของคุณชลิต/เจ้าของกิจการ (string)
 
 # === ฟังก์ชันนับจำนวนรอบถาม ===
 def load_usage(file):
