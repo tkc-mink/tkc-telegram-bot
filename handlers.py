@@ -24,6 +24,21 @@ def handle_message(data):
 
             file_path = file_info["result"]["file_path"]
             image_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+            
+            # ตรวจสอบว่าเป็นข้อความค้นหาหรือไม่
+if re.search(r"(ขอลิงก์|ค้นหา|หาข้อมูล|แหล่งข้อมูล|เว็บไซต์|เว็บ)", text):
+    results = smart_search(text)
+    if results:
+        reply = "🔎 ผมค้นหาข้อมูลให้แล้วครับ:\n" + "\n\n".join(results)
+    else:
+        reply = "ขออภัย ผมไม่พบลิงก์ที่เกี่ยวข้องครับ"
+
+    # ส่งกลับแล้วออกจากฟังก์ชัน
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+        json={"chat_id": chat_id, "text": reply}
+    )
+    return
 
             # ส่งรูป + คำอธิบายไป GPT-4o
             response = client.chat.completions.create(
