@@ -74,17 +74,11 @@ def fetch_duckduckgo_images(query, max_results=3):
         return []
 
 def robust_image_search(query, lang_out="th", max_results=3):
-    """
-    ค้นรูปแบบ robust: Google → Bing → DuckDuckGo (แหล่งใดมีรูป เอารูปแหล่งนั้นทันที)
-    """
-    # 1. Google Images
     results = fetch_google_images(query, lang_out=lang_out, max_results=max_results)
     if results:
         return results
-    # 2. Bing Images
     results = fetch_bing_images(query, max_results=max_results)
     if results:
         return results
-    # 3. DuckDuckGo Images
     results = fetch_duckduckgo_images(query, max_results=max_results)
     return results
