@@ -1,53 +1,35 @@
+# search_utils.py
+
 import requests
 from bs4 import BeautifulSoup
-import urllib.parse
+from langdetect import detect
 
-def translate_th_to_en(text):
-    # ใช้ API ฟรีของ LibreTranslate (หรือแปลแบบ simple fallback)
-    url = "https://translate.argosopentech.com/translate"
+def smart_search(query):
     try:
-        response = requests.post(url, json={
-            "q": text,
-            "source": "th",
-            "target": "en",
-            "format": "text"
-        }, timeout=5)
-        return response.json()['translatedText']
-    except Exception:
-        return text  # fallback หากแปลไม่ได้
+        lang = detect(query)
+        if lang != "th":
+            trans_resp = requests.get(
+                f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=th&dt=t&q={query}"
+            )
+            query = trans_resp.json()[0][0][0]
 
-def translate_en_to_th(text):
-    # แปลกลับเป็นไทย
-    url = "https://translate.argosopentech.com/translate"
-    try:
-        response = requests.post(url, json={
-            "q": text,
-            "source": "en",
-            "target": "th",
-            "format": "text"
-        }, timeout=5)
-        return response.json()['translatedText']
-    except Exception:
-        return text
+        url = f"https://www.google.com/search?q={query}"
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, "lxml")
 
-def search_duckduckgo_translated(query_th, max_results=3):
-    query_en = translate_th_to_en(query_th)
-    search_url = "https://html.duckduckgo.com/html/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+        results = []
+        for g in soup.select("div.g"):
+            title = g.select_one("h3")
+            link = g.select_one("a")
+            if title and link:
+                results.append(f"{title.text.strip()}\n{link['href']}")
+            if len(results) >= 5:
+                break
 
-    try:
-        res = requests.post(search_url, data={"q": query_en}, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, "html.parser")
-    except requests.RequestException as e:
-        return [f"⚠️ เกิดข้อผิดพลาดในการค้นหา: {e}"]
+        return results
 
-    results = []
-    for link in soup.find_all("a", attrs={"class": "result__a"}, limit=max_results):
-        href = link.get("href")
-        title_en = link.get_text()
-        title_th = translate_en_to_th(title_en)
-        results.append(f"🔹 {title_th}\n{href}")
-
-    if not results:
-        return ["❌ ไม่พบผลลัพธ์ที่เกี่ยวข้อง"]
-    return results
+    except Exception as e:
+        return [f"เกิดข้อผิดพลาดในการค้นหา: {str(e)}"]
