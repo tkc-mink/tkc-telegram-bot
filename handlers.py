@@ -1,3 +1,4 @@
+# handlers.py
 import os
 import json
 from datetime import datetime
@@ -6,6 +7,9 @@ from openai import OpenAI
 from search_utils import robust_image_search
 from review_utils import set_review, need_review_today, has_reviewed_today
 from history_utils import log_message, get_user_history
+from weather_utils import get_weather_forecast
+from gold_utils import get_gold_price
+from news_utils import get_news
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -14,9 +18,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 USAGE_FILE = "usage.json"
 IMAGE_USAGE_FILE = "image_usage.json"
 CONTEXT_FILE = "context_history.json"
+LOCATION_FILE = "location_logs.json"
 MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY = 15
-
 EXEMPT_USER_IDS = ["6849909227"]
 
 def load_usage(file):
@@ -66,6 +70,32 @@ def get_context(user_id):
 def is_waiting_review(user_id):
     context = get_context(user_id)
     return context and context[-1] == "__wait_review__"
+
+def load_location():
+    try:
+        with open(LOCATION_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_location(data):
+    with open(LOCATION_FILE, "w") as f:
+        json.dump(data, f)
+
+def update_location(user_id, lat, lon, province=None, country=None):
+    loc = load_location()
+    loc[user_id] = {
+        "lat": lat,
+        "lon": lon,
+        "province": province,
+        "country": country,
+        "ts": datetime.now().isoformat()
+    }
+    save_location(loc)
+
+def get_user_location(user_id):
+    loc = load_location()
+    return loc.get(user_id, {})
 
 def send_message(chat_id, text):
     requests.post(
@@ -123,6 +153,15 @@ def handle_message(data):
     user_text = message.get("caption", "") or message.get("text", "")
     user_id = str(chat_id)
 
+    # รับ location (ถ้ามี)
+    if "location" in message:
+        loc = message["location"]
+        lat = loc.get("latitude")
+        lon = loc.get("longitude")
+        update_location(user_id, lat, lon)
+        send_message(chat_id, "บันทึกพิกัดสำเร็จ! จะใช้ในการตอบอากาศ/ข้อมูลเฉพาะพื้นที่")
+        return
+
     update_context(user_id, user_text)
     context_history = get_context(user_id)
 
@@ -158,16 +197,47 @@ def handle_message(data):
             send_message(chat_id, f"ขออภัย คุณใช้งานครบ {MAX_QUESTION_PER_DAY} ครั้งแล้วในวันนี้")
             return
 
-    # ==== ขอรูป ====
-    if any(k in user_text.lower() for k in ["ขอรูป", "มีภาพ", "image", "picture", "photo", "รูป", "ภาพ"]):
-        handle_image_search(chat_id, user_id, user_text, context_history)
-        log_message(user_id, user_text, "ภาพที่ส่งกลับ (ดูในแชท)")
-    else:
-        # ==== ส่งคำถามเข้า GPT4o + log history ====
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": user_text}],
-        )
-        reply = response.choices[0].message.content.strip()
+    # ==== Smart Routing ====
+    txt = user_text.lower()
+    user_loc = get_user_location(user_id)
+
+    # ----- พยากรณ์อากาศ -----
+    if "อากาศ" in txt or "weather" in txt:
+        # ถ้ามี location ล่าสุดของ user → ใช้ lat/lon → ส่งให้ weather_utils
+        if user_loc.get("lat") and user_loc.get("lon"):
+            reply = get_weather_forecast(user_text, user_loc["lat"], user_loc["lon"])
+        else:
+            # พยายามหา จังหวัด/ประเทศใน user_text ก่อน, fallback = Bangkok
+            reply = get_weather_forecast(user_text)
         log_message(user_id, user_text, reply)
         send_message(chat_id, reply)
+        return
+
+    # ----- ราคาทอง -----
+    if "ราคาทอง" in txt or "gold" in txt:
+        reply = get_gold_price()
+        log_message(user_id, user_text, reply)
+        send_message(chat_id, reply)
+        return
+
+    # ----- ข่าว -----
+    if "ข่าว" in txt or "news" in txt:
+        reply = get_news(user_text)
+        log_message(user_id, user_text, reply)
+        send_message(chat_id, reply)
+        return
+
+    # ----- ขอรูป -----
+    if any(k in txt for k in ["ขอรูป", "มีภาพ", "image", "picture", "photo", "รูป", "ภาพ"]):
+        handle_image_search(chat_id, user_id, user_text, context_history)
+        log_message(user_id, user_text, "ภาพที่ส่งกลับ (ดูในแชท)")
+        return
+
+    # ----- Default: ส่งเข้า GPT-4o -----
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": user_text}],
+    )
+    reply = response.choices[0].message.content.strip()
+    log_message(user_id, user_text, reply)
+    send_message(chat_id, reply)
