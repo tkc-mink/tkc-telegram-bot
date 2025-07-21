@@ -6,14 +6,16 @@ from datetime import datetime
 from openai import OpenAI
 from search_utils import smart_search
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
+# --------- ENV CONFIG ---------
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+MAX_USAGE_PER_DAY = 30
 
-# ---------- UTILITIES ----------
+client = OpenAI(api_key=OPENAI_API_KEY)
 
+# --------- UTILITIES ---------
 def send_message(chat_id, text):
-    """ส่งข้อความไปยังผู้ใช้ Telegram"""
+    """ส่งข้อความไปยัง Telegram"""
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -23,18 +25,17 @@ def send_message(chat_id, text):
         print(f"[send_message] ERROR: {e}")
 
 def log_error(chat_id, e):
-    """ส่งข้อความแสดงข้อผิดพลาด"""
     print(f"[log_error] {e}")
     try:
         send_message(chat_id, f"❌ เกิดข้อผิดพลาด: {str(e)}")
-    except:
+    except Exception:
         pass
 
 def load_usage():
     try:
         with open("usage.json", "r") as f:
             return json.load(f)
-    except:
+    except Exception:
         return {}
 
 def save_usage(data):
@@ -44,23 +45,35 @@ def save_usage(data):
     except Exception as e:
         print(f"[save_usage] ERROR: {e}")
 
-# ---------- MAIN ----------
-
+# --------- MAIN HANDLER ---------
 def handle_message(data):
+    chat_id = None
     try:
         message = data.get("message", {})
         chat_id = message["chat"]["id"]
         user_id = str(chat_id)
         text = message.get("caption", "") or message.get("text", "")
 
-        # 🔎 ตรวจสอบว่าเป็นคำค้นหาหรือไม่
-        if re.search(r"(ขอลิงก์|ค้นหา|หาข้อมูล|แหล่งข้อมูล|เว็บไซต์|เว็บ)", text):
-            results = smart_search(text)
-            reply = "🔎 ผมค้นหาข้อมูลให้แล้วครับ:\n\n" + "\n\n".join(results)
-            send_message(chat_id, reply)
+        # ตรวจสอบขีดจำกัดการใช้งาน
+        today = datetime.now().strftime("%Y-%m-%d")
+        usage = load_usage()
+        usage.setdefault(today, {})
+        usage[today].setdefault(user_id, 0)
+
+        if usage[today][user_id] >= MAX_USAGE_PER_DAY:
+            send_message(chat_id, f"ขออภัย คุณใช้งานครบ {MAX_USAGE_PER_DAY} ครั้งแล้วในวันนี้")
             return
 
-        # 🖼️ กรณีเป็นภาพ
+        # ---------- 1. Smart Search ----------
+        if re.search(r"(ขอลิงก์|ค้นหา|หาข้อมูล|แหล่งข้อมูล|เว็บไซต์|เว็บ)", text):
+            results = smart_search(text)
+            reply = "🔎 ค้นหาข้อมูลให้แล้วครับ:\n\n" + "\n\n".join(results)
+            send_message(chat_id, reply)
+            usage[today][user_id] += 1
+            save_usage(usage)
+            return
+
+        # ---------- 2. วิเคราะห์รูปภาพ ----------
         if "photo" in message:
             file_id = message["photo"][-1]["file_id"]
             file_info = requests.get(
@@ -83,27 +96,29 @@ def handle_message(data):
             )
             reply = response.choices[0].message.content.strip()
             send_message(chat_id, reply)
+            usage[today][user_id] += 1
+            save_usage(usage)
             return
 
-        # 💬 ข้อความทั่วไป
-        today = datetime.now().strftime("%Y-%m-%d")
-        usage = load_usage()
-        usage.setdefault(today, {})
-        usage[today].setdefault(user_id, 0)
-
-        if usage[today][user_id] >= 30:
-            send_message(chat_id, "ขออภัย คุณใช้งานครบ 30 ครั้งแล้วในวันนี้")
+        # ---------- 3. ข้อความปกติ / Prompt ไป GPT-4o ----------
+        # ถ้าผู้ใช้ถามว่า “คุณคือ GPT-4o ไหม” ให้ตอบเฉพาะ
+        if re.search(r"gpt-?4o", text, re.IGNORECASE):
+            send_message(chat_id, "ใช่ครับ ตอนนี้คุณกำลังคุยกับ GPT-4o (Omni) รุ่นใหม่ล่าสุดของ OpenAI พร้อมวิเคราะห์ข้อความและภาพได้! ถามอะไรเพิ่มเติมได้เลยครับ 😊")
+            usage[today][user_id] += 1
+            save_usage(usage)
             return
 
-        # ส่งข้อความไป GPT
+        # ปกติ: คุยกับ GPT-4o (ข้อความ)
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "user", "content": text}]
+            messages=[{"role": "user", "content": text}],
+            max_tokens=1024,
+            temperature=0.7,
         )
         reply = response.choices[0].message.content.strip()
+        send_message(chat_id, reply)
         usage[today][user_id] += 1
         save_usage(usage)
-        send_message(chat_id, reply)
 
     except Exception as e:
         log_error(chat_id, e)
