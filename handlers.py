@@ -48,9 +48,9 @@ def handle_message(data):
 
         # ส่งข้อความไป GPT
         response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": text}]
-        )
+    model="gpt-4o",
+    messages=[{"role": "user", "content": text}]
+)
 
         # บันทึกการใช้งาน
         usage[today][user_id] += 1
