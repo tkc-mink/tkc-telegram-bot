@@ -6,22 +6,28 @@ from datetime import datetime
 from openai import OpenAI
 from search_utils import smart_search
 
-# โหลดคีย์ API
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# ---------- UTILITY FUNCTIONS ----------
+# ---------- UTILITIES ----------
 
 def send_message(chat_id, text):
     """ส่งข้อความไปยังผู้ใช้ Telegram"""
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": chat_id, "text": text}
-    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text}
+        )
+    except Exception as e:
+        print(f"[send_message] ERROR: {e}")
 
 def log_error(chat_id, e):
-    """ส่งข้อความแสดงข้อผิดพลาด (และ log ถ้าต้องการ)"""
-    send_message(chat_id, f"❌ เกิดข้อผิดพลาด: {str(e)}")
+    """ส่งข้อความแสดงข้อผิดพลาด"""
+    print(f"[log_error] {e}")
+    try:
+        send_message(chat_id, f"❌ เกิดข้อผิดพลาด: {str(e)}")
+    except:
+        pass
 
 def load_usage():
     try:
@@ -31,10 +37,13 @@ def load_usage():
         return {}
 
 def save_usage(data):
-    with open("usage.json", "w") as f:
-        json.dump(data, f)
+    try:
+        with open("usage.json", "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"[save_usage] ERROR: {e}")
 
-# ---------- MAIN HANDLER ----------
+# ---------- MAIN ----------
 
 def handle_message(data):
     try:
@@ -43,17 +52,14 @@ def handle_message(data):
         user_id = str(chat_id)
         text = message.get("caption", "") or message.get("text", "")
 
-        # ✅ ตรวจสอบว่าเป็นข้อความค้นหาหรือไม่
+        # 🔎 ตรวจสอบว่าเป็นคำค้นหาหรือไม่
         if re.search(r"(ขอลิงก์|ค้นหา|หาข้อมูล|แหล่งข้อมูล|เว็บไซต์|เว็บ)", text):
             results = smart_search(text)
-            if results:
-                reply = "🔎 ผมค้นหาข้อมูลให้แล้วครับ:\n\n" + "\n\n".join(results)
-            else:
-                reply = "ขออภัย ผมหาลิงก์ที่เกี่ยวข้องไม่ได้จริง ๆ ครับ"
+            reply = "🔎 ผมค้นหาข้อมูลให้แล้วครับ:\n\n" + "\n\n".join(results)
             send_message(chat_id, reply)
             return
 
-        # ✅ ตรวจสอบว่าเป็นภาพหรือไม่
+        # 🖼️ กรณีเป็นภาพ
         if "photo" in message:
             file_id = message["photo"][-1]["file_id"]
             file_info = requests.get(
@@ -78,19 +84,17 @@ def handle_message(data):
             send_message(chat_id, reply)
             return
 
-        # ✅ ข้อความทั่วไป
+        # 💬 ข้อความทั่วไป
         today = datetime.now().strftime("%Y-%m-%d")
         usage = load_usage()
-        if today not in usage:
-            usage[today] = {}
-        if user_id not in usage[today]:
-            usage[today][user_id] = 0
+        usage.setdefault(today, {})
+        usage[today].setdefault(user_id, 0)
 
         if usage[today][user_id] >= 30:
             send_message(chat_id, "ขออภัย คุณใช้งานครบ 30 ครั้งแล้วในวันนี้")
             return
 
-        # ส่งข้อความไปยัง GPT
+        # ส่งข้อความไป GPT
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": text}]
