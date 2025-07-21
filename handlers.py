@@ -5,6 +5,7 @@ import requests
 from openai import OpenAI
 from search_utils import robust_image_search
 from review_utils import set_review, need_review_today, has_reviewed_today
+from history_utils import log_message, get_user_history
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -16,9 +17,8 @@ CONTEXT_FILE = "context_history.json"
 MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY = 15
 
-EXEMPT_USER_IDS = ["6849909227"]  # chat_id admin
+EXEMPT_USER_IDS = ["6849909227"]
 
-# --- ฟังก์ชันใช้งาน/นับรอบ ---
 def load_usage(file):
     try:
         with open(file, "r") as f:
@@ -41,7 +41,6 @@ def check_and_increase_usage(user_id, file, max_count):
     save_usage(usage, file)
     return True
 
-# --- ฟังก์ชัน context per user ---
 def load_context():
     try:
         with open(CONTEXT_FILE, "r") as f:
@@ -68,7 +67,6 @@ def is_waiting_review(user_id):
     context = get_context(user_id)
     return context and context[-1] == "__wait_review__"
 
-# --- ส่งข้อความ/รูป ---
 def send_message(chat_id, text):
     requests.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
@@ -84,7 +82,6 @@ def send_photo(chat_id, photo_url, caption=None):
         json=data
     )
 
-# --- AI generate keyword พร้อม context ---
 def generate_image_search_keyword(user_text, context_history=None):
     system_prompt = (
         "คุณคือ AI ที่เก่งเรื่องค้นหารูปจากอินเทอร์เน็ต ให้คิด 'คำค้น' (search keyword) ที่เหมาะสมที่สุดจากโจทย์ของผู้ใช้ "
@@ -106,7 +103,6 @@ def generate_image_search_keyword(user_text, context_history=None):
     )
     return response.choices[0].message.content.strip()
 
-# --- handle image search + context ---
 def handle_image_search(chat_id, user_id, user_text, context_history):
     if user_id not in EXEMPT_USER_IDS:
         if not check_and_increase_usage(user_id, IMAGE_USAGE_FILE, MAX_IMAGE_PER_DAY):
@@ -121,7 +117,6 @@ def handle_image_search(chat_id, user_id, user_text, context_history):
     else:
         send_message(chat_id, f"ขออภัย ไม่พบรูปภาพสำหรับ '{keyword}' จากทุกแหล่งครับ ลองเปลี่ยนรายละเอียดหรือระบุข้อมูลเพิ่มเติม เช่น ยี่ห้อ รุ่น สี ปี ฯลฯ")
 
-# --- MAIN handle_message ---
 def handle_message(data):
     message = data.get("message", {})
     chat_id = message["chat"]["id"]
@@ -131,13 +126,24 @@ def handle_message(data):
     update_context(user_id, user_text)
     context_history = get_context(user_id)
 
-    # ระบบรีวิว: ถ้ามีใช้งานเมื่อวาน และยังไม่ได้รีวิว ให้ถามรีวิวก่อน
+    # ==== /my_history (ประวัติย้อนหลัง) ====
+    if user_text.strip() == "/my_history":
+        history = get_user_history(user_id, limit=10)
+        if not history:
+            send_message(chat_id, "ยังไม่มีประวัติการถาม-ตอบย้อนหลังของคุณ")
+        else:
+            history_str = "\n\n".join(
+                [f"[{item['date']}] ❓{item['q']}\n➡️ {item['a']}" for item in history]
+            )
+            send_message(chat_id, f"ประวัติ 10 ข้อความล่าสุดของคุณ:\n\n{history_str}")
+        return
+
+    # ==== ระบบรีวิว ====
     if need_review_today(user_id) and not is_waiting_review(user_id):
         send_message(chat_id, "ขอรีวิวความพึงพอใจที่ได้ใช้บอทเมื่อวานนี้ (1=ไม่พอใจ, 5=พอใจมาก) กรุณาพิมพ์เลข 1-5")
         update_context(user_id, "__wait_review__")
         return
 
-    # ระบบรีวิว: ถ้ากำลังรอรีวิว และ user ตอบ 1-5
     if is_waiting_review(user_id) and user_text.strip() in ["1", "2", "3", "4", "5"]:
         set_review(user_id, int(user_text.strip()))
         send_message(chat_id, "ขอบคุณสำหรับรีวิวครับ!")
@@ -146,17 +152,22 @@ def handle_message(data):
             send_message(chat_id, "รบกวนช่วยบอกเหตุผลหรือข้อติชมที่ทำให้ยังไม่พอใจ เพื่อให้ทีมงานปรับปรุงให้ดีขึ้นได้ไหมครับ")
         return
 
-    # จำกัดรอบถามทุกประเภท
+    # ==== จำกัดรอบ ====
     if user_id not in EXEMPT_USER_IDS:
         if not check_and_increase_usage(user_id, USAGE_FILE, MAX_QUESTION_PER_DAY):
             send_message(chat_id, f"ขออภัย คุณใช้งานครบ {MAX_QUESTION_PER_DAY} ครั้งแล้วในวันนี้")
             return
 
-    # เงื่อนไขขอรูป
+    # ==== ขอรูป ====
     if any(k in user_text.lower() for k in ["ขอรูป", "มีภาพ", "image", "picture", "photo", "รูป", "ภาพ"]):
         handle_image_search(chat_id, user_id, user_text, context_history)
+        log_message(user_id, user_text, "ภาพที่ส่งกลับ (ดูในแชท)")
     else:
-        send_message(
-            chat_id,
-            "สอบถามภาพได้ทันทีโดยพิมพ์ 'ขอรูป...' หรือ 'มีภาพ...' ตามด้วยรายละเอียด เช่น 'ขอรูปยาง bridgestone 265/65R17 AT'"
+        # ==== ส่งคำถามเข้า GPT4o + log history ====
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": user_text}],
         )
+        reply = response.choices[0].message.content.strip()
+        log_message(user_id, user_text, reply)
+        send_message(chat_id, reply)
