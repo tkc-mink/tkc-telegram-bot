@@ -42,7 +42,7 @@ def save_json_safe(data, path):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[save_json_safe] {path}: {e}")
+        print(f"[save_json_safe:{path}] {e}")
 
 # ─── Usage Counting ───────────────────────────────────────
 
@@ -74,6 +74,10 @@ def update_context(user_id, text):
 def get_context(user_id):
     return load_context().get(user_id, [])
 
+def is_waiting_review(user_id):
+    ctx = get_context(user_id)
+    return ctx and ctx[-1] == "__wait_review__"
+
 # ─── Location Logging ────────────────────────────────────
 
 def load_location():
@@ -84,11 +88,7 @@ def save_location(loc):
 
 def update_location(user_id, lat, lon):
     loc = load_location()
-    loc[user_id] = {
-        "lat": lat,
-        "lon": lon,
-        "ts": datetime.now().isoformat()
-    }
+    loc[user_id] = {"lat": lat, "lon": lon, "ts": datetime.now().isoformat()}
     save_location(loc)
 
 def get_user_location(user_id):
@@ -122,9 +122,7 @@ def send_photo(chat_id, photo_url, caption=None):
 def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแหน่งของคุณ"):
     keyboard = {
         "keyboard": [
-            [
-                {"text": "📍 แชร์ตำแหน่งของคุณ", "request_location": True}
-            ]
+            [ {"text": "📍 แชร์ตำแหน่งของคุณ", "request_location": True} ]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True
@@ -147,7 +145,7 @@ def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแห
 
 def generate_image_search_keyword(user_text, context_history):
     system_prompt = (
-        "คุณคือ AI ช่วยคิดคำค้นรูปภาพจากโจทย์ผู้ใช้ หากโจทย์ไม่ครบ ให้อยูตรวมเอง "
+        "คุณคือ AI ช่วยคิดคำค้นรูปภาพจากโจทย์ผู้ใช้ หากโจทย์ไม่ครบ ให้เติมให้สมเหตุสมผล "
         "และ output เป็น keyword ภาษาอังกฤษที่ได้ผลดีที่สุด"
     )
     messages = [{"role":"system","content":system_prompt}]
@@ -201,6 +199,11 @@ def handle_message(data):
             send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
         return
 
+    # 1a) ถ้าพิมพ์ปุ่มเอง ให้ส่งปุ่มอีกครั้ง
+    if user_text.strip() == "📍 แชร์ตำแหน่งของคุณ":
+        ask_for_location(chat_id)
+        return
+
     # 2) Update Context
     update_context(user_id, user_text)
     ctx = get_context(user_id)
@@ -216,8 +219,13 @@ def handle_message(data):
         return
 
     # 4) รีวิว
-    if need_review_today(user_id) and not has_reviewed_today(user_id):
+    if need_review_today(user_id) and not is_waiting_review(user_id):
         send_message(chat_id, "❓ กรุณารีวิววันนี้ (1-5):")
+        update_context(user_id, "__wait_review__")
+        return
+    if is_waiting_review(user_id) and user_text.strip() in ["1","2","3","4","5"]:
+        set_review(user_id, int(user_text.strip()))
+        send_message(chat_id, "✅ ขอบคุณสำหรับรีวิวครับ!")
         return
 
     # 5) จำกัดรอบถาม
@@ -233,9 +241,9 @@ def handle_message(data):
     if "อากาศ" in txt or "weather" in txt:
         if loc and loc.get("lat") and loc.get("lon"):
             reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
+            send_message(chat_id, reply)
         else:
             ask_for_location(chat_id)
-        log_message(user_id, user_text, reply if 'reply' in locals() else "ขอ Location")
         return
 
     # 7) ราคาทอง
@@ -253,7 +261,7 @@ def handle_message(data):
         return
 
     # 9) รูปภาพ
-    if any(k in txt for k in ["ขอรูป", "รูป", "image", "photo"]):
+    if any(k in txt for k in ["ขอรูป","รูป","image","photo"]):
         handle_image_search(chat_id, user_id, user_text, ctx)
         log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
         return
@@ -267,7 +275,7 @@ def handle_message(data):
         reply = resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[GPT] {e}")
-        reply = "❌ เกิดปัญหาในการประมวลผล ลองใหม่อีกครั้ง"
+        reply = "❌ ขัดข้องในการประมวลผล ลองใหม่อีกครั้ง"
 
     log_message(user_id, user_text, reply)
     send_message(chat_id, reply)
