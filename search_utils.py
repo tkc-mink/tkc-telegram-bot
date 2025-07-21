@@ -1,4 +1,3 @@
-
 import requests
 from bs4 import BeautifulSoup
 from langdetect import detect
@@ -29,14 +28,17 @@ def translate_to_en(text):
 def search_duckduckgo(query, max_results=3):
     url = "https://html.duckduckgo.com/html/"
     headers = {'User-Agent': 'Mozilla/5.0'}
-    res = requests.post(url, data={"q": query}, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
+    try:
+        res = requests.post(url, data={"q": query}, headers=headers, timeout=5)
+        soup = BeautifulSoup(res.text, "html.parser")
+    except requests.RequestException as e:
+        return [f"เกิดข้อผิดพลาดในการค้นหา: {e}"]
 
     results = []
     for link in soup.find_all("a", attrs={"class": "result__a"}, limit=max_results):
         href = link.get("href")
         title = link.get_text()
-        results.append(f"- {title}\n{href}")
+        results.append(f"{title}\n{href}")
     return results
 
 # รวมเป็น smart_search() ใช้ได้ทุกสถานการณ์
@@ -54,9 +56,10 @@ def smart_search(text):
     else:
         query = original_query
 
-    # แปลถ้าเป็นไทยและไม่จำกัดโดเมน
+    # แปลถ้าเป็นไทยและไม่ได้กำหนดโดเมน
     if is_thai(original_query) and "site:" not in query:
         translated = translate_to_en(original_query)
-        query = translated
+        if translated and translated != original_query:
+            query = translated
 
     return search_duckduckgo(query)
