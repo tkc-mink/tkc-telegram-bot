@@ -1,4 +1,3 @@
-# handlers.py
 import os
 import json
 from datetime import datetime
@@ -19,47 +18,50 @@ USAGE_FILE = "usage.json"
 IMAGE_USAGE_FILE = "image_usage.json"
 CONTEXT_FILE = "context_history.json"
 LOCATION_FILE = "location_logs.json"
+
 MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY = 15
-EXEMPT_USER_IDS = ["6849909227"]
+EXEMPT_USER_IDS = ["6849909227"]  # Telegram ID ที่ไม่จำกัดการใช้งาน
 
-def load_usage(file):
+# โหลดข้อมูล JSON จากไฟล์ด้วยความปลอดภัย
+def load_json_safe(filename):
     try:
-        with open(file, "r") as f:
+        with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def save_usage(data, file):
-    with open(file, "w") as f:
-        json.dump(data, f)
+# บันทึกข้อมูล JSON ลงไฟล์อย่างปลอดภัย
+def save_json_safe(data, filename):
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[save_json_safe] Error saving {filename}: {e}")
 
-def check_and_increase_usage(user_id, file, max_count):
+# ตรวจสอบและเพิ่มการใช้งานรายวันของ user
+def check_and_increase_usage(user_id, filename, max_count):
     today = datetime.now().strftime("%Y-%m-%d")
-    usage = load_usage(file)
+    usage = load_json_safe(filename)
     usage.setdefault(today, {})
     usage[today].setdefault(user_id, 0)
     if usage[today][user_id] >= max_count:
         return False
     usage[today][user_id] += 1
-    save_usage(usage, file)
+    save_json_safe(usage, filename)
     return True
 
 def load_context():
-    try:
-        with open(CONTEXT_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+    return load_json_safe(CONTEXT_FILE)
 
 def save_context(data):
-    with open(CONTEXT_FILE, "w") as f:
-        json.dump(data, f)
+    save_json_safe(data, CONTEXT_FILE)
 
 def update_context(user_id, user_text):
     context = load_context()
     context.setdefault(user_id, [])
     context[user_id].append(user_text)
+    # เก็บแค่ 5 ข้อความล่าสุด
     context[user_id] = context[user_id][-5:]
     save_context(context)
 
@@ -72,15 +74,10 @@ def is_waiting_review(user_id):
     return context and context[-1] == "__wait_review__"
 
 def load_location():
-    try:
-        with open(LOCATION_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {}
+    return load_json_safe(LOCATION_FILE)
 
 def save_location(data):
-    with open(LOCATION_FILE, "w") as f:
-        json.dump(data, f)
+    save_json_safe(data, LOCATION_FILE)
 
 def update_location(user_id, lat, lon, province=None, country=None):
     loc = load_location()
@@ -98,19 +95,27 @@ def get_user_location(user_id):
     return loc.get(user_id, {})
 
 def send_message(chat_id, text):
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": chat_id, "text": text}
-    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=5
+        )
+    except Exception as e:
+        print(f"[send_message] Error: {e}")
 
 def send_photo(chat_id, photo_url, caption=None):
     data = {"chat_id": chat_id, "photo": photo_url}
     if caption:
         data["caption"] = caption
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
-        json=data
-    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
+            json=data,
+            timeout=5
+        )
+    except Exception as e:
+        print(f"[send_photo] Error: {e}")
 
 def generate_image_search_keyword(user_text, context_history=None):
     system_prompt = (
@@ -125,13 +130,17 @@ def generate_image_search_keyword(user_text, context_history=None):
             messages.append({"role": "user", "content": prev})
     messages.append({"role": "user", "content": user_text})
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        max_tokens=50,
-        temperature=0.7,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=50,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[generate_image_search_keyword] GPT Error: {e}")
+        return user_text  # fallback ใช้ข้อความเดิม
 
 def handle_image_search(chat_id, user_id, user_text, context_history):
     if user_id not in EXEMPT_USER_IDS:
@@ -149,7 +158,11 @@ def handle_image_search(chat_id, user_id, user_text, context_history):
 
 def handle_message(data):
     message = data.get("message", {})
-    chat_id = message["chat"]["id"]
+    chat_id = message.get("chat", {}).get("id")
+    if not chat_id:
+        print("[handle_message] Missing chat_id")
+        return
+
     user_text = message.get("caption", "") or message.get("text", "")
     user_id = str(chat_id)
 
@@ -158,8 +171,11 @@ def handle_message(data):
         loc = message["location"]
         lat = loc.get("latitude")
         lon = loc.get("longitude")
-        update_location(user_id, lat, lon)
-        send_message(chat_id, "บันทึกพิกัดสำเร็จ! จะใช้ในการตอบอากาศ/ข้อมูลเฉพาะพื้นที่")
+        if lat is not None and lon is not None:
+            update_location(user_id, lat, lon)
+            send_message(chat_id, "บันทึกพิกัดสำเร็จ! จะใช้ในการตอบอากาศ/ข้อมูลเฉพาะพื้นที่")
+        else:
+            send_message(chat_id, "ได้รับข้อมูลตำแหน่งไม่ครบถ้วน กรุณาลองใหม่อีกครั้ง")
         return
 
     update_context(user_id, user_text)
@@ -197,17 +213,14 @@ def handle_message(data):
             send_message(chat_id, f"ขออภัย คุณใช้งานครบ {MAX_QUESTION_PER_DAY} ครั้งแล้วในวันนี้")
             return
 
-    # ==== Smart Routing ====
     txt = user_text.lower()
     user_loc = get_user_location(user_id)
 
     # ----- พยากรณ์อากาศ -----
     if "อากาศ" in txt or "weather" in txt:
-        # ถ้ามี location ล่าสุดของ user → ใช้ lat/lon → ส่งให้ weather_utils
         if user_loc.get("lat") and user_loc.get("lon"):
             reply = get_weather_forecast(user_text, user_loc["lat"], user_loc["lon"])
         else:
-            # พยายามหา จังหวัด/ประเทศใน user_text ก่อน, fallback = Bangkok
             reply = get_weather_forecast(user_text)
         log_message(user_id, user_text, reply)
         send_message(chat_id, reply)
@@ -234,10 +247,15 @@ def handle_message(data):
         return
 
     # ----- Default: ส่งเข้า GPT-4o -----
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": user_text}],
-    )
-    reply = response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": user_text}],
+        )
+        reply = response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[handle_message] GPT API error: {e}")
+        reply = "ขออภัยครับ เกิดปัญหาในการประมวลผลข้อความของคุณ กรุณาลองใหม่อีกครั้ง"
+
     log_message(user_id, user_text, reply)
     send_message(chat_id, reply)
