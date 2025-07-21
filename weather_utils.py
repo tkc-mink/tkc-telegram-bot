@@ -9,15 +9,12 @@ from typing import Optional, Tuple, Any
 # ─── Configuration ────────────────────────────────────────
 
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-# Default to Bangkok if no location provided
+# ถ้าไม่มีพิกัดใดๆ ให้ใช้ กรุงเทพฯ
 DEFAULT_LAT, DEFAULT_LON = 13.736717, 100.523186
 
-# ─── Core API Calls ───────────────────────────────────────
+# ─── Core: One Call v2.5 (ฟรี 1,000 calls/day) ────────────
 
 def get_weather_by_coords(lat: float, lon: float) -> Optional[dict[str, Any]]:
-    """
-    Fetch current + 7‑day forecast from OpenWeather One Call API v2.5 (free).
-    """
     if not OPENWEATHER_API_KEY:
         print("[weather_utils] Missing OPENWEATHER_API_KEY")
         return None
@@ -39,9 +36,6 @@ def get_weather_by_coords(lat: float, lon: float) -> Optional[dict[str, Any]]:
     return None
 
 def geocode_city(city: str) -> Optional[Tuple[float, float]]:
-    """
-    Geocode a city name into (lat, lon) using OpenWeather Geocoding API.
-    """
     if not OPENWEATHER_API_KEY:
         return None
 
@@ -60,16 +54,12 @@ def geocode_city(city: str) -> Optional[Tuple[float, float]]:
         print(f"[weather_utils] Geocoding error: {e}")
     return None
 
-# ─── Formatting ───────────────────────────────────────────
+# ─── Formatter ────────────────────────────────────────────
 
 def format_weather_summary(data: dict[str, Any]) -> str:
-    """
-    Turn the raw JSON into a user‑friendly Thai weather summary.
-    """
     if not data:
         return "❌ ขออภัย ไม่สามารถดึงข้อมูลสภาพอากาศได้ในขณะนี้"
 
-    # Current weather
     cur = data.get("current", {})
     t    = cur.get("temp", "–")
     desc = cur.get("weather", [{}])[0].get("description", "–")
@@ -80,7 +70,6 @@ def format_weather_summary(data: dict[str, Any]) -> str:
     msg += f"อุณหภูมิ {t}°C, {desc}\n"
     msg += f"ความชื้น {hum}% ลม {wind} ม./วินาที\n\n"
 
-    # 7‑day forecast
     daily = data.get("daily", [])
     if daily:
         msg += "📅 พยากรณ์ 7 วันข้างหน้า:\n"
@@ -103,18 +92,11 @@ def get_weather_forecast(
     lat: Optional[float] = None,
     lon: Optional[float] = None
 ) -> str:
-    """
-    Wrapper for handlers.py:
-     1) If lat/lon provided → fetch directly.
-     2) Else try to extract a city name from text → geocode → fetch.
-     3) Else fallback to DEFAULT_LAT/DEFAULT_LON (Bangkok).
-    """
-    # 1) Direct coords
+    # 1) ถ้ามีพิกัด → ดึงตรง
     if lat is not None and lon is not None:
-        data = get_weather_by_coords(lat, lon)
-        return format_weather_summary(data or {})
+        return format_weather_summary(get_weather_by_coords(lat, lon) or {})
 
-    # 2) Try parse city from user text
+    # 2) ลอง parse เมืองจาก text
     city = None
     if text:
         m = re.search(r"(ที่|in)\s*([ก-๙A-Za-z\s]+)", text)
@@ -124,10 +106,8 @@ def get_weather_forecast(
     if city:
         coords = geocode_city(city)
         if coords:
-            data = get_weather_by_coords(*coords)
-            return format_weather_summary(data or {})
+            return format_weather_summary(get_weather_by_coords(*coords) or {})
 
-    # 3) Fallback to Bangkok
-    data    = get_weather_by_coords(DEFAULT_LAT, DEFAULT_LON)
-    summary = format_weather_summary(data or {})
+    # 3) fallback กรุงเทพฯ
+    summary = format_weather_summary(get_weather_by_coords(DEFAULT_LAT, DEFAULT_LON) or {})
     return "⚠️ ใช้กรุงเทพฯ เป็นค่า default:\n" + summary
