@@ -1,65 +1,53 @@
 import requests
 from bs4 import BeautifulSoup
-from langdetect import detect
+import urllib.parse
 
-# ตรวจจับว่าข้อความเป็นภาษาไทยหรือไม่
-def is_thai(text):
+def translate_th_to_en(text):
+    # ใช้ API ฟรีของ LibreTranslate (หรือแปลแบบ simple fallback)
+    url = "https://translate.argosopentech.com/translate"
     try:
-        return detect(text) == "th"
-    except:
-        return False
+        response = requests.post(url, json={
+            "q": text,
+            "source": "th",
+            "target": "en",
+            "format": "text"
+        }, timeout=5)
+        return response.json()['translatedText']
+    except Exception:
+        return text  # fallback หากแปลไม่ได้
 
-# แปลไทย -> อังกฤษ (ใช้ LibreTranslate API)
-def translate_to_en(text):
-    url = "https://libretranslate.de/translate"
-    data = {
-        "q": text,
-        "source": "th",
-        "target": "en",
-        "format": "text"
-    }
+def translate_en_to_th(text):
+    # แปลกลับเป็นไทย
+    url = "https://translate.argosopentech.com/translate"
     try:
-        res = requests.post(url, data=data, timeout=5)
-        return res.json().get("translatedText", text)
-    except:
+        response = requests.post(url, json={
+            "q": text,
+            "source": "en",
+            "target": "th",
+            "format": "text"
+        }, timeout=5)
+        return response.json()['translatedText']
+    except Exception:
         return text
 
-# ฟังก์ชันค้นหาผ่าน DuckDuckGo
-def search_duckduckgo(query, max_results=3):
-    url = "https://html.duckduckgo.com/html/"
+def search_duckduckgo_translated(query_th, max_results=3):
+    query_en = translate_th_to_en(query_th)
+    search_url = "https://html.duckduckgo.com/html/"
     headers = {'User-Agent': 'Mozilla/5.0'}
+
     try:
-        res = requests.post(url, data={"q": query}, headers=headers, timeout=5)
+        res = requests.post(search_url, data={"q": query_en}, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
     except requests.RequestException as e:
-        return [f"เกิดข้อผิดพลาดในการค้นหา: {e}"]
+        return [f"⚠️ เกิดข้อผิดพลาดในการค้นหา: {e}"]
 
     results = []
     for link in soup.find_all("a", attrs={"class": "result__a"}, limit=max_results):
         href = link.get("href")
-        title = link.get_text()
-        results.append(f"{title}\n{href}")
+        title_en = link.get_text()
+        title_th = translate_en_to_th(title_en)
+        results.append(f"🔹 {title_th}\n{href}")
+
+    if not results:
+        return ["❌ ไม่พบผลลัพธ์ที่เกี่ยวข้อง"]
     return results
-
-# รวมเป็น smart_search() ใช้ได้ทุกสถานการณ์
-def smart_search(text):
-    original_query = text
-    text_lower = text.lower()
-
-    # ค้นหาเฉพาะเว็บเฉพาะทาง
-    if "youtube" in text_lower:
-        query = original_query + " site:youtube.com"
-    elif "wikipedia" in text_lower:
-        query = original_query + " site:th.wikipedia.org"
-    elif is_thai(original_query):
-        query = original_query + " site:.th"
-    else:
-        query = original_query
-
-    # แปลถ้าเป็นไทยและไม่ได้กำหนดโดเมน
-    if is_thai(original_query) and "site:" not in query:
-        translated = translate_to_en(original_query)
-        if translated and translated != original_query:
-            query = translated
-
-    return search_duckduckgo(query)
