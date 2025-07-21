@@ -6,6 +6,7 @@ from datetime import datetime
 from openai import OpenAI
 from search_utils import smart_search
 
+# ✅ แก้ตรงนี้ ไม่ส่ง keyword 'proxies' หรือ kwargs ผิดพลาด
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
