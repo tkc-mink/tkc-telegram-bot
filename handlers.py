@@ -2,6 +2,8 @@ import os
 import requests
 from openai import OpenAI
 from datetime import datetime
+from search_utils import smart_search
+import re
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
