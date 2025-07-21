@@ -1,26 +1,29 @@
-def fetch_google_images(query, lang_out="th", max_results=3):
-    """ค้นหารูปภาพจาก Google Images (ส่ง url รูปให้บอทใช้/preview)"""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        )
-    }
-    url = f"https://www.google.com/search?q={quote(query)}&hl={lang_out}&tbm=isch"
+import requests
+from bs4 import BeautifulSoup
+from langdetect import detect
+from urllib.parse import quote
+
+# ... ฟังก์ชัน translate_query, fetch_google_web, fetch_google_news, fetch_google_images ตามที่เขียนไปก่อนหน้า ...
+
+def smart_search(query, lang_out="th", max_results=3, enable_news=True, enable_images=True):
     try:
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "lxml")
-        image_results = []
-        for img in soup.select("img"):
-            src = img.get("src")
-            if src and src.startswith("http"):
-                image_results.append(src)
-            if len(image_results) >= max_results:
-                break
-        if not image_results:
-            return ["ไม่พบรูปภาพที่เกี่ยวข้องจาก Google Images ครับ"]
-        # ส่ง plain URL กลับ (เพื่อส่งเข้า sendPhoto ของ Telegram ได้ทันที)
-        return [url for url in image_results if url]
+        lang = detect(query)
+        if lang != lang_out:
+            query = translate_query(query, lang_out=lang_out)
+        all_results = []
+        web_results = fetch_google_web(query, lang_out=lang_out, max_results=max_results)
+        if web_results:
+            all_results.extend(web_results)
+        if enable_news:
+            news_results = fetch_google_news(query, lang_out=lang_out, max_results=max_results)
+            if news_results:
+                all_results.extend(news_results)
+        if enable_images:
+            img_results = fetch_google_images(query, lang_out=lang_out, max_results=max_results)
+            if img_results:
+                all_results.extend(img_results)
+        if not all_results:
+            return ["ไม่พบข้อมูลจาก Google ครับ"]
+        return all_results
     except Exception as e:
-        return [f"เกิดข้อผิดพลาดในการค้นหารูปภาพ: {str(e)}"]
+        return [f"เกิดข้อผิดพลาดในการค้นหาข้อมูล: {str(e)}"]
