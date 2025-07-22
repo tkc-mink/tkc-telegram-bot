@@ -20,11 +20,13 @@ def load_context(user_id):
 def save_context(user_id, context):
     """เซฟ context (list of message-dict) ของ user"""
     try:
+        data = {}
         if os.path.exists(CONTEXT_FILE):
             with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            data = {}
+                try:
+                    data = json.load(f)
+                except Exception:
+                    data = {}
         data[user_id] = context
         with open(CONTEXT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -54,14 +56,36 @@ def get_last_messages(user_id, n=6):
 def clear_context(user_id):
     """ลบ context ทั้งหมดของ user"""
     try:
+        data = {}
         if os.path.exists(CONTEXT_FILE):
             with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            data = {}
+                try:
+                    data = json.load(f)
+                except Exception:
+                    data = {}
         if user_id in data:
             del data[user_id]
         with open(CONTEXT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[context_utils.clear_context] {e}")
+
+def clear_all_context():
+    """ลบ context ของทุก user (admin use)"""
+    try:
+        with open(CONTEXT_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[context_utils.clear_all_context] {e}")
+
+def list_all_users():
+    """คืนรายชื่อ user_id ที่มี context เก็บอยู่ (for admin/debug)"""
+    try:
+        if not os.path.exists(CONTEXT_FILE):
+            return []
+        with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return list(data.keys())
+    except Exception as e:
+        print(f"[context_utils.list_all_users] {e}")
+        return []
