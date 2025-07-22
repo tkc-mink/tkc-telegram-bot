@@ -1,4 +1,5 @@
 # function_calling.py
+
 import os
 import json
 from openai import OpenAI
@@ -72,8 +73,27 @@ SYSTEM_PROMPT = (
     "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้"
 )
 
+def function_dispatch(fname, args):
+    if fname == "get_weather_forecast":
+        return get_weather_forecast(text=args.get("text", ""))
+    elif fname == "get_gold_price":
+        return get_gold_price()
+    elif fname == "get_news":
+        return get_news(args.get("topic", "ข่าว"))
+    elif fname == "get_stock_info":
+        return get_stock_info(args.get("query", "หุ้น"))
+    elif fname == "get_oil_price":
+        return get_oil_price()
+    elif fname == "get_lottery_result":
+        return get_lottery_result()
+    elif fname == "get_crypto_price":
+        return get_crypto_price(args.get("coin", "bitcoin"))
+    else:
+        return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
+
 def process_with_function_calling(user_message: str, ctx=None) -> str:
     try:
+        # 1. วางโครง context conversation
         messages = []
         messages.append({"role": "system", "content": SYSTEM_PROMPT})
         if ctx:
@@ -81,6 +101,7 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
                 messages.append({"role": "user", "content": prev})
         messages.append({"role": "user", "content": user_message})
 
+        # 2. เรียก GPT (รอบแรก)
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -88,25 +109,34 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
             function_call="auto"
         )
         msg = response.choices[0].message
+
+        # 3. ถ้า GPT ตอบเป็น function_call → จัดการฟังก์ชัน, เพิ่ม context, วนส่งใหม่ (multi-turn)
         if msg.function_call:
             fname = msg.function_call.name
             args = json.loads(msg.function_call.arguments or "{}")
-            if fname == "get_weather_forecast":
-                return get_weather_forecast(text=args.get("text", ""))
-            elif fname == "get_gold_price":
-                return get_gold_price()
-            elif fname == "get_news":
-                return get_news(args.get("topic", "ข่าว"))
-            elif fname == "get_stock_info":
-                return get_stock_info(args.get("query", "หุ้น"))
-            elif fname == "get_oil_price":
-                return get_oil_price()
-            elif fname == "get_lottery_result":
-                return get_lottery_result()
-            elif fname == "get_crypto_price":
-                return get_crypto_price(args.get("coin", "bitcoin"))
-            return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
+            result = function_dispatch(fname, args)
+            # เติมการเรียก function และผลลัพธ์ลง context แล้วให้ GPT สรุปให้อีกรอบ
+            messages.append({
+                "role": "assistant",
+                "function_call": {"name": fname, "arguments": json.dumps(args, ensure_ascii=False)}
+            })
+            messages.append({
+                "role": "function",
+                "name": fname,
+                "content": result
+            })
+            # call gpt อีก 1 รอบเพื่อ summarize หรือแปลให้ user
+            response2 = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                functions=FUNCTIONS,
+                function_call="none"
+            )
+            msg2 = response2.choices[0].message
+            return msg2.content.strip() if msg2.content else result
+
+        # 4. ถ้า GPT ตอบเองเลย (content)
         return msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
     except Exception as e:
         print(f"[function_calling] {e}")
-        return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
+        return "❌ ระบบ
