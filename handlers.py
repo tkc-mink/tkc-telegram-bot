@@ -1,5 +1,3 @@
-# handlers.py
-
 import os
 import json
 from datetime import datetime
@@ -12,6 +10,7 @@ from history_utils   import log_message, get_user_history
 from weather_utils   import get_weather_forecast
 from gold_utils      import get_gold_price
 from news_utils      import get_news
+from function_calling import process_with_function_calling   # << เพิ่มบรรทัดนี้
 
 # ─── Configuration ────────────────────────────────────────
 
@@ -266,15 +265,11 @@ def handle_message(data):
         log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
         return
 
-    # 10) Fallback → GPT-4o
+    # 10) Fallback → GPT-4o + Function Calling (แก้ไขตรงนี้)
     try:
-        resp = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role":"user","content":user_text}]
-        )
-        reply = resp.choices[0].message.content.strip()
+        reply = process_with_function_calling(user_text)
     except Exception as e:
-        print(f"[GPT] {e}")
+        print(f"[GPT function_calling] {e}")
         reply = "❌ ขัดข้องในการประมวลผล ลองใหม่อีกครั้ง"
 
     log_message(user_id, user_text, reply)
