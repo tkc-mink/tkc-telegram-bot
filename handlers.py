@@ -1,10 +1,12 @@
-# handlers.py
-
 import os
 import json
-from datetime import datetime
 import requests
+import tempfile
+import pytesseract
+from datetime import datetime
+from PIL import Image
 from openai import OpenAI
+from PyPDF2 import PdfReader
 
 from search_utils      import robust_image_search
 from review_utils      import set_review, need_review_today
@@ -25,9 +27,8 @@ CONTEXT_FILE         = "context_history.json"
 LOCATION_FILE        = "location_logs.json"
 MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY    = 15
-EXEMPT_USER_IDS      = ["6849909227"]  # Telegram IDs ไม่ถูกจำกัด
+EXEMPT_USER_IDS      = ["6849909227"]
 
-# --- JSON helpers ---
 def load_json_safe(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -41,7 +42,6 @@ def save_json_safe(data, path):
     except Exception as e:
         print(f"[save_json_safe:{path}] {e}")
 
-# --- Usage counting ---
 def check_and_increase_usage(user_id, filepath, limit):
     today = datetime.now().strftime("%Y-%m-%d")
     usage = load_json_safe(filepath)
@@ -53,7 +53,6 @@ def check_and_increase_usage(user_id, filepath, limit):
     save_json_safe(usage, filepath)
     return True
 
-# --- Context helpers ---
 def load_context():
     return load_json_safe(CONTEXT_FILE)
 def save_context(ctx):
@@ -61,7 +60,7 @@ def save_context(ctx):
 def update_context(user_id, text):
     ctx = load_context()
     ctx.setdefault(user_id, []).append(text)
-    ctx[user_id] = ctx[user_id][-6:]  # keep 6 latest for fallback
+    ctx[user_id] = ctx[user_id][-6:]
     save_context(ctx)
 def get_context(user_id):
     return load_context().get(user_id, [])
@@ -69,7 +68,6 @@ def is_waiting_review(user_id):
     ctx = get_context(user_id)
     return ctx and ctx[-1] == "__wait_review__"
 
-# --- Location helpers ---
 def load_location():
     return load_json_safe(LOCATION_FILE)
 def save_location(loc):
@@ -81,13 +79,12 @@ def update_location(user_id, lat, lon):
 def get_user_location(user_id):
     return load_location().get(user_id)
 
-# --- Telegram Send ---
 def send_message(chat_id, text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={"chat_id": chat_id, "text": text},
-            timeout=5
+            timeout=10
         )
     except Exception as e:
         print(f"[send_message] {e}")
@@ -100,7 +97,7 @@ def send_photo(chat_id, photo_url, caption=None):
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
             json=payload,
-            timeout=5
+            timeout=10
         )
     except Exception as e:
         print(f"[send_photo] {e}")
@@ -127,21 +124,17 @@ def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแห
     except Exception as e:
         print(f"[ask_for_location] {e}")
 
-# --- Context reset logic ---
 def should_reset_context(new_text, prev_context):
     if not prev_context:
         return False
     last = prev_context[-1] if isinstance(prev_context, list) and prev_context else ""
-    # ตัวอย่างแยก topic (keyword-based)
     topics = ["ทอง", "หวย", "อากาศ", "ข่าว", "หุ้น", "น้ำมัน", "สุขภาพ", "ฟุตบอล"]
     if any(t in last for t in topics) and not any(t in new_text for t in topics):
         return True
-    # user พิมพ์รีเซ็ต
     if new_text.strip().lower() in ["/reset", "เริ่มใหม่", "รีเซ็ต"]:
         return True
     return False
 
-# --- Image search ---
 def handle_image_search(chat_id, user_id, text, ctx):
     if user_id not in EXEMPT_USER_IDS:
         if not check_and_increase_usage(user_id, IMAGE_USAGE_FILE, MAX_IMAGE_PER_DAY):
@@ -155,7 +148,158 @@ def handle_image_search(chat_id, user_id, text, ctx):
     else:
         send_message(chat_id, f"ไม่พบภาพสำหรับ '{kw}'")
 
-# --- Main Handler ---
+def _download_telegram_file(file_id):
+    r = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile",
+        params={"file_id": file_id},
+        timeout=10
+    )
+    file_path = r.json()["result"]["file_path"]
+    url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+    ext = os.path.splitext(file_path)[1].lower()
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    with requests.get(url, stream=True, timeout=20) as resp:
+        for chunk in resp.iter_content(chunk_size=8192):
+            tmp.write(chunk)
+    tmp.close()
+    return tmp.name
+
+def _extract_text_from_image(img_path):
+    try:
+        img = Image.open(img_path)
+        text = pytesseract.image_to_string(img, lang="tha+eng")
+        return text.strip()
+    except Exception as e:
+        print(f"[OCR img] {e}")
+        return ""
+
+def _extract_text_from_pdf(pdf_path, max_pages=10):
+    try:
+        reader = PdfReader(pdf_path)
+        text = ""
+        for i, page in enumerate(reader.pages):
+            if i >= max_pages:
+                text += "\n(ตัดเหลือ 10 หน้าแรก)"
+                break
+            text += page.extract_text() or ""
+        return text.strip()
+    except Exception as e:
+        print(f"[PDF extract] {e}")
+        return ""
+
+def _extract_text_from_docx(docx_path):
+    try:
+        from docx import Document
+        doc = Document(docx_path)
+        return "\n".join([p.text for p in doc.paragraphs])
+    except Exception as e:
+        print(f"[DOCX extract] {e}")
+        return ""
+
+def _extract_text_from_xlsx(xlsx_path):
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(xlsx_path, read_only=True)
+        text = []
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(values_only=True):
+                line = " | ".join([str(cell) if cell is not None else "" for cell in row])
+                text.append(line)
+            text.append("----------")
+        return "\n".join(text[:200])  # limit
+    except Exception as e:
+        print(f"[XLSX extract] {e}")
+        return ""
+
+def _extract_text_from_pptx(pptx_path):
+    try:
+        from pptx import Presentation
+        prs = Presentation(pptx_path)
+        text = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    text.append(shape.text)
+            text.append("---")
+        return "\n".join(text)
+    except Exception as e:
+        print(f"[PPTX extract] {e}")
+        return ""
+
+def handle_document(chat_id, doc_file, file_name, user_text=""):
+    summary = ""
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext in [".pdf"]:
+        extracted = _extract_text_from_pdf(doc_file)
+        if not extracted:
+            send_message(chat_id, "❌ ไม่สามารถอ่าน PDF ได้")
+            return
+        summary = summarize_text_with_gpt(extracted)
+    elif ext in [".docx"]:
+        extracted = _extract_text_from_docx(doc_file)
+        if not extracted:
+            send_message(chat_id, "❌ ไม่สามารถอ่าน Word ได้")
+            return
+        summary = summarize_text_with_gpt(extracted)
+    elif ext in [".txt"]:
+        with open(doc_file, encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+        summary = summarize_text_with_gpt(text)
+    elif ext in [".xlsx"]:
+        extracted = _extract_text_from_xlsx(doc_file)
+        if not extracted:
+            send_message(chat_id, "❌ ไม่สามารถอ่าน Excel ได้")
+            return
+        summary = summarize_text_with_gpt("ข้อมูลใน Excel:\n" + extracted)
+    elif ext in [".pptx"]:
+        extracted = _extract_text_from_pptx(doc_file)
+        if not extracted:
+            send_message(chat_id, "❌ ไม่สามารถอ่าน PowerPoint ได้")
+            return
+        summary = summarize_text_with_gpt("ข้อมูลใน PowerPoint:\n" + extracted)
+    else:
+        send_message(chat_id, "❌ รองรับ PDF, Word, Excel, PowerPoint, TXT เท่านั้น")
+        return
+    send_message(chat_id, f"สรุปเอกสาร/ไฟล์ {file_name} :\n{summary}")
+
+def summarize_text_with_gpt(text, prompt="สรุปเนื้อหานี้ (ภาษาไทย):"):
+    try:
+        result = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "คุณคือ AI ช่วยสรุปเนื้อหาและอ่านเอกสารภาษาไทยได้ดี"},
+                {"role": "user", "content": f"{prompt}\n\n{text[:5000]}"}
+            ],
+            max_tokens=600
+        )
+        return result.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[summarize_text_with_gpt] {e}")
+        return "❌ ไม่สามารถสรุปได้"
+
+def analyze_image_with_gpt4vision(image_path, prompt="วิเคราะห์รูปภาพนี้"):
+    try:
+        with open(image_path, "rb") as f:
+            result = client.chat.completions.create(
+                model="gpt-4-vision-preview",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": "attachment://input.jpg"}}
+                        ]
+                    }
+                ],
+                files={"input.jpg": f},
+                max_tokens=600,
+            )
+        answer = result.choices[0].message.content.strip()
+        return answer
+    except Exception as e:
+        print(f"[analyze_image_with_gpt4vision] {e}")
+        return "❌ ไม่สามารถวิเคราะห์รูปนี้ได้"
+
 def handle_message(data):
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
@@ -175,6 +319,32 @@ def handle_message(data):
             send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
         return
 
+    # 2) Document/File
+    if "document" in msg:
+        doc = msg["document"]
+        file_id = doc["file_id"]
+        file_name = doc.get("file_name", "document")
+        file_path = _download_telegram_file(file_id)
+        send_message(chat_id, f"🕵️‍♂️ กำลังอ่านไฟล์ {file_name} ...")
+        handle_document(chat_id, file_path, file_name, user_text)
+        os.remove(file_path)
+        return
+
+    # 3) Photo/Image
+    if "photo" in msg:
+        file_id = msg["photo"][-1]["file_id"]
+        file_path = _download_telegram_file(file_id)
+        send_message(chat_id, "🕵️‍♂️ กำลังวิเคราะห์รูปภาพ โปรดรอสักครู่...")
+        ocr_text = _extract_text_from_image(file_path)
+        result_vision = analyze_image_with_gpt4vision(file_path)
+        reply = ""
+        if ocr_text.strip():
+            reply += f"🔎 ข้อความที่อ่านเจอในภาพ (OCR):\n{ocr_text}\n\n"
+        reply += f"🧠 วิเคราะห์ด้วย AI:\n{result_vision}"
+        send_message(chat_id, reply)
+        os.remove(file_path)
+        return
+
     # /reset context manual
     if user_text.strip().lower() in ["/reset", "เริ่มใหม่", "รีเซ็ต"]:
         save_context({user_id: []})
@@ -185,15 +355,13 @@ def handle_message(data):
         ask_for_location(chat_id)
         return
 
-    # --- Load & update context (with smart reset) ---
     ctx = get_context(user_id)
     if should_reset_context(user_text, ctx):
         ctx = []
         save_context({user_id: []})
     update_context(user_id, user_text)
-    ctx = get_context(user_id)  # reload after update
+    ctx = get_context(user_id)
 
-    # 3) /my_history
     if user_text.strip() == "/my_history":
         history = get_user_history(user_id, limit=10)
         if not history:
@@ -203,7 +371,6 @@ def handle_message(data):
             send_message(chat_id, f"ประวัติ 10 ล่าสุด:\n\n{out}")
         return
 
-    # 4) รีวิว
     if need_review_today(user_id) and not is_waiting_review(user_id):
         send_message(chat_id, "❓ กรุณารีวิววันนี้ (1-5):")
         update_context(user_id, "__wait_review__")
@@ -213,7 +380,6 @@ def handle_message(data):
         send_message(chat_id, "✅ ขอบคุณสำหรับรีวิวครับ!")
         return
 
-    # 5) จำกัดรอบถาม
     if user_id not in EXEMPT_USER_IDS:
         if not check_and_increase_usage(user_id, USAGE_FILE, MAX_QUESTION_PER_DAY):
             send_message(chat_id, f"❌ ครบ {MAX_QUESTION_PER_DAY} คำถามแล้ววันนี้")
@@ -222,7 +388,6 @@ def handle_message(data):
     txt = user_text.lower()
     loc = get_user_location(user_id)
 
-    # 6) Live info fast-lane
     if "อากาศ" in txt or "weather" in txt:
         if loc and loc.get("lat") and loc.get("lon"):
             reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
@@ -236,9 +401,8 @@ def handle_message(data):
         log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
         return
 
-    # == Fallback → GPT-4o + Function Calling (Context-aware) ==
     try:
-        reply = process_with_function_calling(user_text, ctx=ctx[-4:])  # ส่ง context ล่าสุด 4 exchange
+        reply = process_with_function_calling(user_text, ctx=ctx[-4:])
     except Exception as e:
         print(f"[GPT function_calling] {e}")
         reply = "❌ ระบบขัดข้อง ลองใหม่อีกครั้ง"
