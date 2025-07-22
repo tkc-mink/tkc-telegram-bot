@@ -2,18 +2,16 @@ import os
 import json
 from datetime import datetime
 import requests
-from openai import OpenAI
 
-from search_utils    import robust_image_search
-from review_utils    import set_review, need_review_today
-from history_utils   import log_message, get_user_history
-from weather_utils   import get_weather_forecast
-from gold_utils      import get_gold_price
-from news_utils      import get_news
+from search_utils import robust_image_search
+from review_utils import set_review, need_review_today
+from history_utils import log_message, get_user_history
+from weather_utils import get_weather_forecast
+from gold_utils import get_gold_price
+from news_utils import get_news
 
 TELEGRAM_TOKEN       = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY       = os.getenv("OPENAI_API_KEY")
-client               = OpenAI(api_key=OPENAI_API_KEY)
 
 USAGE_FILE           = "usage.json"
 IMAGE_USAGE_FILE     = "image_usage.json"
@@ -22,8 +20,9 @@ LOCATION_FILE        = "location_logs.json"
 
 MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY    = 15
-EXEMPT_USER_IDS      = ["6849909227"]
+EXEMPT_USER_IDS      = ["6849909227"]  # เพิ่ม id คุณเองถ้าไม่อยากโดนจำกัด
 
+# --- JSON I/O Helpers ---
 def load_json_safe(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -38,6 +37,7 @@ def save_json_safe(data, path):
     except Exception as e:
         print(f"[save_json_safe:{path}] {e}")
 
+# --- Usage Counting ---
 def check_and_increase_usage(user_id, filepath, limit):
     today = datetime.now().strftime("%Y-%m-%d")
     usage = load_json_safe(filepath)
@@ -49,6 +49,7 @@ def check_and_increase_usage(user_id, filepath, limit):
     save_json_safe(usage, filepath)
     return True
 
+# --- Context Memory ---
 def load_context():
     return load_json_safe(CONTEXT_FILE)
 
@@ -68,6 +69,7 @@ def is_waiting_review(user_id):
     ctx = get_context(user_id)
     return ctx and ctx[-1] == "__wait_review__"
 
+# --- Location Logging ---
 def load_location():
     return load_json_safe(LOCATION_FILE)
 
@@ -82,6 +84,7 @@ def update_location(user_id, lat, lon):
 def get_user_location(user_id):
     return load_location().get(user_id)
 
+# --- Telegram Send Helpers ---
 def send_message(chat_id, text):
     try:
         requests.post(
@@ -127,33 +130,58 @@ def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแห
     except Exception as e:
         print(f"[ask_for_location] {e}")
 
-# --- Intent ครอบจักรวาล (no SerpAPI) ---
+# --- Intent Mapping: ครอบจักรวาล ---
 def intent_liveinfo(user_txt):
     txt = user_txt.lower()
-    # สามารถต่อเติม intent mapping ได้
-    if "ราคาทอง" in txt or ("ทอง" in txt and "รูป" not in txt):
+    # ราคาทอง
+    if any(kw in txt for kw in ["ราคาทอง", "ทองแท่ง", "ทองรูปพรรณ", "ทองคำ"]):
         return get_gold_price()
-    if "ข่าว" in txt:
-        return get_news()
-    if "อากาศ" in txt or "weather" in txt:
-        return get_weather_forecast()
-    # ฟีเจอร์ที่ยังไม่รองรับ
-    if "หุ้น" in txt: return "❌ ยังไม่รองรับข้อมูลหุ้น"
-    if "น้ำมัน" in txt: return "❌ ยังไม่รองรับราคาน้ำมัน"
-    if "หวย" in txt or "สลาก" in txt: return "❌ ยังไม่รองรับผลหวย"
-    if "bitcoin" in txt or "คริปโต" in txt or "บิทคอยน์" in txt: return "❌ ยังไม่รองรับราคาคริปโต"
-    return None
+    # ข่าว
+    if any(kw in txt for kw in ["ข่าว", "ข่าววันนี้", "breaking news", "headline"]):
+        return get_news(txt)
+    # อากาศ/พยากรณ์
+    if any(kw in txt for kw in ["อากาศ", "weather", "ฝน", "พยากรณ์", "ฝนตก", "อุณหภูมิ", "ร้อน", "หนาว"]):
+        return get_weather_forecast(text=txt)
+    # หุ้น
+    if any(kw in txt for kw in ["หุ้น", "set index", "ตลาดหุ้น", "ดัชนีหุ้น", "ราคาหุ้น", "หุ้นวันนี้"]):
+        return "❌ ยังไม่รองรับข้อมูลหุ้น (กำลังพัฒนา)"
+    # น้ำมัน
+    if any(kw in txt for kw in ["น้ำมัน", "ราคาน้ำมัน", "น้ำมันดีเซล", "น้ำมันเบนซิน", "น้ำมันวันนี้"]):
+        return "❌ ยังไม่รองรับราคาน้ำมัน (กำลังพัฒนา)"
+    # หวย/ลอตเตอรี่
+    if any(kw in txt for kw in ["หวย", "ผลสลาก", "สลากกินแบ่ง", "ลอตเตอรี่", "ล็อตเตอรี่", "ตรวจหวย"]):
+        return "❌ ยังไม่รองรับผลหวย (กำลังพัฒนา)"
+    # คริปโต
+    if any(kw in txt for kw in ["bitcoin", "btc", "คริปโต", "crypto", "ethereum", "eth", "dogecoin"]):
+        return "❌ ยังไม่รองรับราคาคริปโต (กำลังพัฒนา)"
+    # บอล/ผลบอล/กีฬาสด
+    if any(kw in txt for kw in ["ผลบอล", "สกอร์", "ฟุตบอล", "score", "ผลบอลสด"]):
+        return "❌ ยังไม่รองรับผลบอลสด (กำลังพัฒนา)"
+    # อัตราแลกเปลี่ยน
+    if any(kw in txt for kw in ["อัตราแลกเปลี่ยน", "usd", "ค่าเงินบาท", "ค่าเงิน", "exchange rate", "dollar"]):
+        return "❌ ยังไม่รองรับอัตราแลกเปลี่ยน (กำลังพัฒนา)"
+    # ราคาสินค้าเกษตร
+    if any(kw in txt for kw in ["ราคายาง", "ราคาปาล์ม", "ราคามันสำปะหลัง", "ราคาข้าว", "ราคาน้ำตาล"]):
+        return "❌ ยังไม่รองรับราคาสินค้าเกษตร (กำลังพัฒนา)"
+    # ค่าครองชีพ
+    if any(kw in txt for kw in ["ค่าไฟ", "ค่าน้ำ", "ค่าครองชีพ", "เงินเดือนขั้นต่ำ"]):
+        return "❌ ยังไม่รองรับข้อมูลนี้ (กำลังพัฒนา)"
+    return None  # ถ้าไม่เข้าเงื่อนไข
 
+# --- Image Search ---
 def generate_image_search_keyword(user_text, context_history):
-    system_prompt = (
-        "คุณคือ AI ช่วยคิดคำค้นรูปภาพจากโจทย์ผู้ใช้ หากโจทย์ไม่ครบ ให้เติมให้สมเหตุสมผล "
-        "และ output เป็น keyword ภาษาอังกฤษที่ได้ผลดีที่สุด"
-    )
-    messages = [{"role":"system","content":system_prompt}]
-    for prev in context_history[-2:]:
-        messages.append({"role":"user","content":prev})
-    messages.append({"role":"user","content":user_text})
     try:
+        # ใช้ GPT เพื่อช่วยสร้าง keyword ภาษาอังกฤษสำหรับค้นรูป
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        system_prompt = (
+            "คุณคือ AI ช่วยคิดคำค้นรูปภาพจากโจทย์ผู้ใช้ หากโจทย์ไม่ครบ ให้เติมให้สมเหตุสมผล "
+            "และ output เป็น keyword ภาษาอังกฤษที่ได้ผลดีที่สุด"
+        )
+        messages = [{"role":"system","content":system_prompt}]
+        for prev in context_history[-2:]:
+            messages.append({"role":"user","content":prev})
+        messages.append({"role":"user","content":user_text})
         resp = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -178,6 +206,7 @@ def handle_image_search(chat_id, user_id, text, ctx):
     else:
         send_message(chat_id, f"ไม่พบภาพสำหรับ '{kw}'")
 
+# --- Main Handler ---
 def handle_message(data):
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
@@ -198,13 +227,16 @@ def handle_message(data):
             send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
         return
 
+    # 1a) ถ้าพิมพ์ปุ่มเอง ให้ส่งปุ่มอีกครั้ง
     if user_text.strip() == "📍 แชร์ตำแหน่งของคุณ":
         ask_for_location(chat_id)
         return
 
+    # 2) Update Context
     update_context(user_id, user_text)
     ctx = get_context(user_id)
 
+    # 3) /my_history
     if user_text.strip() == "/my_history":
         history = get_user_history(user_id, limit=10)
         if not history:
@@ -214,6 +246,7 @@ def handle_message(data):
             send_message(chat_id, f"ประวัติ 10 ล่าสุด:\n\n{out}")
         return
 
+    # 4) รีวิว
     if need_review_today(user_id) and not is_waiting_review(user_id):
         send_message(chat_id, "❓ กรุณารีวิววันนี้ (1-5):")
         update_context(user_id, "__wait_review__")
@@ -223,6 +256,7 @@ def handle_message(data):
         send_message(chat_id, "✅ ขอบคุณสำหรับรีวิวครับ!")
         return
 
+    # 5) จำกัดรอบถาม
     if user_id not in EXEMPT_USER_IDS:
         if not check_and_increase_usage(user_id, USAGE_FILE, MAX_QUESTION_PER_DAY):
             send_message(chat_id, f"❌ ครบ {MAX_QUESTION_PER_DAY} คำถามแล้ววันนี้")
@@ -231,7 +265,7 @@ def handle_message(data):
     txt = user_text.lower()
     loc = get_user_location(user_id)
 
-    # 6) อากาศ: ใช้ OpenWeather API
+    # 6) อากาศ
     if "อากาศ" in txt or "weather" in txt:
         if loc and loc.get("lat") and loc.get("lon"):
             reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
@@ -240,7 +274,7 @@ def handle_message(data):
             ask_for_location(chat_id)
         return
 
-    # 7) ครอบจักรวาล intent mapping
+    # 7) ฟีเจอร์ intent live info (ทอง, ข่าว, หวย, หุ้น, น้ำมัน ฯลฯ)
     liveinfo = intent_liveinfo(user_text)
     if liveinfo:
         log_message(user_id, user_text, liveinfo)
@@ -253,8 +287,10 @@ def handle_message(data):
         log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
         return
 
-    # 9) fallback → GPT-4o
+    # 9) fallback → GPT-4o (ถาม-ตอบทั่วไป)
     try:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
         resp = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": user_text}],
