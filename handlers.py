@@ -2,10 +2,9 @@ import os
 import json
 import requests
 import tempfile
-import pytesseract
 from datetime import datetime
-from PIL import Image
 from openai import OpenAI
+from PIL import Image
 from PyPDF2 import PdfReader
 
 from search_utils      import robust_image_search
@@ -170,15 +169,6 @@ def _download_telegram_file(file_id):
     tmp.close()
     return tmp.name
 
-def _extract_text_from_image(img_path):
-    try:
-        img = Image.open(img_path)
-        text = pytesseract.image_to_string(img, lang="tha+eng")
-        return text.strip()
-    except Exception as e:
-        print(f"[OCR img] {e}")
-        return ""
-
 def _extract_text_from_pdf(pdf_path, max_pages=10):
     try:
         reader = PdfReader(pdf_path)
@@ -283,29 +273,6 @@ def summarize_text_with_gpt(text, prompt="สรุปเนื้อหาน�
         print(f"[summarize_text_with_gpt] {e}")
         return "❌ ไม่สามารถสรุปได้"
 
-def analyze_image_with_gpt4vision(image_path, prompt="วิเคราะห์รูปภาพนี้"):
-    try:
-        with open(image_path, "rb") as f:
-            result = client.chat.completions.create(
-                model="gpt-4-vision-preview",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": "attachment://input.jpg"}}
-                        ]
-                    }
-                ],
-                files={"input.jpg": f},
-                max_tokens=600,
-            )
-        answer = result.choices[0].message.content.strip()
-        return answer
-    except Exception as e:
-        print(f"[analyze_image_with_gpt4vision] {e}")
-        return "❌ ไม่สามารถวิเคราะห์รูปนี้ได้"
-
 def handle_message(data):
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
@@ -338,17 +305,7 @@ def handle_message(data):
 
     # 3) Photo/Image
     if "photo" in msg:
-        file_id = msg["photo"][-1]["file_id"]
-        file_path = _download_telegram_file(file_id)
-        send_message(chat_id, "🕵️‍♂️ กำลังวิเคราะห์รูปภาพ โปรดรอสักครู่...")
-        ocr_text = _extract_text_from_image(file_path)
-        result_vision = analyze_image_with_gpt4vision(file_path)
-        reply = ""
-        if ocr_text.strip():
-            reply += f"🔎 ข้อความที่อ่านเจอในภาพ (OCR):\n{ocr_text}\n\n"
-        reply += f"🧠 วิเคราะห์ด้วย AI:\n{result_vision}"
-        send_message(chat_id, reply)
-        os.remove(file_path)
+        send_message(chat_id, "ขออภัย ขณะนี้ยังไม่รองรับการอ่านข้อความหรือวิเคราะห์เนื้อหาจากรูปภาพโดยตรง หากต้องการค้นหารูปภาพให้พิมพ์ว่า 'ขอรูป...' หรือคำค้นภาพที่ต้องการ")
         return
 
     # /reset context manual
