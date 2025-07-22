@@ -1,3 +1,4 @@
+# function_calling.py
 import os
 import json
 from openai import OpenAI
@@ -5,12 +6,7 @@ from openai import OpenAI
 from weather_utils import get_weather_forecast
 from gold_utils    import get_gold_price
 from news_utils    import get_news
-
-# --- ฟังก์ชัน placeholder (ยังไม่ต้องใช้ SerpAPI) ---
-def get_stock_info(query): return "❌ ยังไม่รองรับข้อมูลหุ้น"
-def get_oil_price(): return "❌ ยังไม่รองรับราคาน้ำมัน"
-def get_lottery_result(): return "❌ ยังไม่รองรับผลหวย"
-def get_crypto_price(coin): return "❌ ยังไม่รองรับราคาคริปโต"
+from serp_utils    import get_stock_info, get_oil_price, get_lottery_result, get_crypto_price
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -21,10 +17,7 @@ FUNCTIONS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "ข้อความที่ผู้ใช้พิมพ์ เช่น อากาศที่โคราช หรือ พยากรณ์วันนี้"
-                }
+                "text": {"type": "string", "description": "ข้อความที่ผู้ใช้พิมพ์"}
             },
             "required": ["text"]
         }
@@ -32,22 +25,14 @@ FUNCTIONS = [
     {
         "name": "get_gold_price",
         "description": "ดูราคาทองคำประจำวัน",
-        "parameters": {
-            "type": "object",
-            "properties": {}
-        }
+        "parameters": {"type": "object", "properties": {}}
     },
     {
         "name": "get_news",
         "description": "ดูข่าวหรือสรุปข่าววันนี้/ข่าวล่าสุด",
         "parameters": {
             "type": "object",
-            "properties": {
-                "topic": {
-                    "type": "string",
-                    "description": "หัวข้อที่ต้องการข่าว เช่น ข่าว, ข่าวเทคโนโลยี, ข่าวการเมือง"
-                }
-            },
+            "properties": {"topic": {"type": "string", "description": "หัวข้อข่าว"}},
             "required": ["topic"]
         }
     },
@@ -56,67 +41,53 @@ FUNCTIONS = [
         "description": "ดูข้อมูลหุ้นวันนี้หรือหุ้นล่าสุดในไทย",
         "parameters": {
             "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "ชื่อหุ้น, SET, หรือคำถามเกี่ยวกับหุ้น"
-                }
-            },
+            "properties": {"query": {"type": "string", "description": "ชื่อหุ้น หรือ SET"}},
             "required": ["query"]
         }
     },
     {
         "name": "get_oil_price",
         "description": "ดูราคาน้ำมันวันนี้",
-        "parameters": {
-            "type": "object",
-            "properties": {}
-        }
+        "parameters": {"type": "object", "properties": {}}
     },
     {
         "name": "get_lottery_result",
         "description": "ผลสลากกินแบ่งรัฐบาลล่าสุด",
-        "parameters": {
-            "type": "object",
-            "properties": {}
-        }
+        "parameters": {"type": "object", "properties": {}}
     },
     {
         "name": "get_crypto_price",
-        "description": "ดูราคา bitcoin หรือเหรียญคริปโตอื่นๆ",
+        "description": "ดูราคา bitcoin หรือเหรียญคริปโต",
         "parameters": {
             "type": "object",
-            "properties": {
-                "coin": {
-                    "type": "string",
-                    "description": "ชื่อเหรียญเช่น bitcoin, btc, ethereum, eth, dogecoin"
-                }
-            },
+            "properties": {"coin": {"type": "string", "description": "ชื่อเหรียญ"}},
             "required": ["coin"]
         }
-    }
+    },
 ]
 
 SYSTEM_PROMPT = (
     "คุณคือผู้ช่วย AI ภาษาไทยขององค์กรกลุ่มตระกูลชัย "
     "ตอบคำถามทั่วไปอย่างสุภาพ จริงใจ และเป็นประโยชน์ "
-    "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้ "
-    "ห้ามตอบแทนถ้าฟังก์ชันสามารถจัดการได้"
+    "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้"
 )
 
-def process_with_function_calling(user_message: str) -> str:
+def process_with_function_calling(user_message: str, ctx=None) -> str:
     try:
+        messages = []
+        messages.append({"role": "system", "content": SYSTEM_PROMPT})
+        if ctx:
+            for prev in ctx[-5:]:
+                messages.append({"role": "user", "content": prev})
+        messages.append({"role": "user", "content": user_message})
+
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
             functions=FUNCTIONS,
             function_call="auto"
         )
         msg = response.choices[0].message
-
         if msg.function_call:
             fname = msg.function_call.name
             args = json.loads(msg.function_call.arguments or "{}")
