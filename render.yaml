@@ -1,11 +1,9 @@
-services:
-  - type: web
-    name: tkc-telegram-bot
-    env: python
-    buildCommand: ""
-    startCommand: gunicorn wsgi:app
-    envVars:
-      - key: BOT_TOKEN
-        sync: false
-      - key: WEBHOOK_URL
-        sync: false
+flask==2.3.3
+gunicorn==21.2.0
+openai==1.25.0
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.2.1
+langdetect==1.0.9
+# หากไม่ได้ใช้ python-telegram-bot library (ใช้แค่ Telegram HTTP API) ไม่ต้องใส่
+# python-telegram-bot==13.15
