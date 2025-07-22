@@ -1,11 +1,14 @@
 # gold_utils.py
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 
 def get_gold_price():
+    """
+    คืนราคาทองวันนี้ (พยายามดึงจาก goldtraders.or.th ก่อน ถ้าไม่ได้ fallback ไป sanook)
+    """
+    # แหล่งที่ 1: สมาคมค้าทอง
     try:
-        url = "https://www.goldtraders.or.th/"
+        url1 = "https://www.goldtraders.or.th/"
         headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -13,35 +16,48 @@ def get_gold_price():
                 "Chrome/125.0.0.0 Safari/537.36"
             )
         }
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.encoding = resp.apparent_encoding  # สำคัญกับเว็บไทย
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # หาวันที่
-        date_tag = soup.find("div", class_="date-time")
-        date_text = ""
-        if date_tag:
-            date_text = date_tag.get_text(strip=True).replace("ณ วันที่", "📅 วันที่").replace("ณ เวลา", "⏰")
-
-        # ตารางราคาทอง
-        table = soup.find("table", class_="table-price")
-        if not table:
-            return "❌ ไม่พบข้อมูลราคาทองในขณะนี้"
-
-        rows = table.find_all("tr")
-        prices = []
-        for row in rows:
-            cols = [c.get_text(strip=True) for c in row.find_all("td")]
-            if len(cols) >= 3:
-                if "ทองคำแท่ง" in cols[0]:
-                    prices.append(f"ทองคำแท่ง: รับซื้อ {cols[1]} / ขายออก {cols[2]}")
-                elif "ทองรูปพรรณ" in cols[0]:
-                    prices.append(f"ทองรูปพรรณ: รับซื้อ {cols[1]} / ขายออก {cols[2]}")
-        if prices:
-            result = (date_text + "\n" if date_text else "") + "📊 ราคาทองวันนี้ (สมาคมค้าทอง):\n" + "\n".join(prices)
-            return result
+        resp1 = requests.get(url1, headers=headers, timeout=10)
+        soup1 = BeautifulSoup(resp1.text, "html.parser")
+        table1 = soup1.find("table", class_="table-price")
+        if table1:
+            prices = []
+            for row in table1.find_all("tr"):
+                cols = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cols) >= 3:
+                    if "ทองคำแท่ง" in cols[0]:
+                        prices.append(f"ทองคำแท่ง: รับซื้อ {cols[1]} / ขายออก {cols[2]}")
+                    elif "ทองรูปพรรณ" in cols[0]:
+                        prices.append(f"ทองรูปพรรณ: รับซื้อ {cols[1]} / ขายออก {cols[2]}")
+            if prices:
+                return "📅 ราคาทองคำวันนี้ (สมาคมค้าทอง):\n" + "\n".join(prices)
         else:
-            return "❌ ไม่พบราคาทองจากเว็บไซต์หลัก"
+            print("[gold_utils] ไม่พบ table-price goldtraders")
     except Exception as e:
-        print(f"[gold_utils] error: {e}")
-        return "❌ ไม่สามารถดึงข้อมูลราคาทองได้ในขณะนี้"
+        print(f"[gold_utils] error goldtraders: {e}")
+
+    # แหล่งที่ 2: Sanook (Fallback)
+    try:
+        url2 = "https://finance.sanook.com/economic/goldrate/"
+        headers2 = {"User-Agent": "Mozilla/5.0"}
+        resp2 = requests.get(url2, headers=headers2, timeout=10)
+        soup2 = BeautifulSoup(resp2.text, "html.parser")
+        table2 = soup2.find("table", class_="tbl_gold")
+        if table2:
+            prices = []
+            for row in table2.find_all("tr"):
+                cols = [c.get_text(strip=True) for c in row.find_all("td")]
+                if len(cols) >= 3:
+                    if "รับซื้อ" in cols[0] or "ขายออก" in cols[0]:
+                        prices.append(f"{cols[0]} {cols[1]}")
+            if prices:
+                return "📅 ราคาทองวันนี้ (Sanook):\n" + "\n".join(prices)
+        else:
+            print("[gold_utils] ไม่พบ tbl_gold sanook")
+    except Exception as e:
+        print(f"[gold_utils] error sanook: {e}")
+
+    # ถ้ายังไม่ได้
+    return (
+        "❌ ขณะนี้ไม่สามารถดึงข้อมูลราคาทองจากแหล่งหลักได้\n"
+        "กรุณาลองใหม่อีกครั้ง หรือเช็คเว็บไซต์ goldtraders.or.th, sanook.com ด้วยตนเอง"
+    )
