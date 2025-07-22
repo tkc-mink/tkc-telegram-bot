@@ -29,12 +29,14 @@ MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY    = 15
 EXEMPT_USER_IDS      = ["6849909227"]
 
+# --- JSON helpers ---
 def load_json_safe(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except:
         return {}
+
 def save_json_safe(data, path):
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -42,6 +44,7 @@ def save_json_safe(data, path):
     except Exception as e:
         print(f"[save_json_safe:{path}] {e}")
 
+# --- Usage counting ---
 def check_and_increase_usage(user_id, filepath, limit):
     today = datetime.now().strftime("%Y-%m-%d")
     usage = load_json_safe(filepath)
@@ -53,6 +56,7 @@ def check_and_increase_usage(user_id, filepath, limit):
     save_json_safe(usage, filepath)
     return True
 
+# --- Context helpers ---
 def load_context():
     return load_json_safe(CONTEXT_FILE)
 def save_context(ctx):
@@ -68,6 +72,7 @@ def is_waiting_review(user_id):
     ctx = get_context(user_id)
     return ctx and ctx[-1] == "__wait_review__"
 
+# --- Location helpers ---
 def load_location():
     return load_json_safe(LOCATION_FILE)
 def save_location(loc):
@@ -79,11 +84,12 @@ def update_location(user_id, lat, lon):
 def get_user_location(user_id):
     return load_location().get(user_id)
 
+# --- Telegram Send ---
 def send_message(chat_id, text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json={"chat_id": chat_id, "text": text[:4096]},
             timeout=10
         )
     except Exception as e:
