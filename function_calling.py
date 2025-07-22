@@ -11,7 +11,6 @@ from serp_utils    import get_stock_info, get_oil_price, get_lottery_result, get
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# == Register Functions ==
 FUNCTIONS = [
     {
         "name": "get_weather_forecast",
@@ -75,7 +74,9 @@ SYSTEM_PROMPT = (
 )
 
 def function_dispatch(fname, args):
-    """แมปชื่อฟังก์ชัน → ไปเรียก function ที่ถูกต้อง"""
+    """
+    Map function name from GPT to actual Python function
+    """
     if fname == "get_weather_forecast":
         return get_weather_forecast(text=args.get("text", ""))
     elif fname == "get_gold_price":
@@ -93,16 +94,30 @@ def function_dispatch(fname, args):
     else:
         return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
 
-def process_with_function_calling(user_message: str, ctx=None) -> str:
+def _normalize_context(ctx):
     """
-    เรียกใช้ OpenAI function calling (multi-turn) พร้อม inject context ย้อนหลัง
+    Ensure context is a list of message-dict (role/content)
+    """
+    if not ctx:
+        return []
+    norm = []
+    for item in ctx:
+        if isinstance(item, dict) and "role" in item and "content" in item:
+            norm.append(item)
+        elif isinstance(item, str):
+            norm.append({"role": "user", "content": item})
+    return norm[-5:]  # limit context
+
+def process_with_function_calling(user_message: str, ctx=None, debug=False) -> str:
+    """
+    Function calling + multi-turn context-aware, fallback GPT answer.
     """
     try:
         # 1. Prepare conversation context
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if ctx:
-            for prev in ctx[-5:]:
-                messages.append({"role": "user", "content": prev})
+            norm_ctx = _normalize_context(ctx)
+            messages.extend(norm_ctx)
         messages.append({"role": "user", "content": user_message})
 
         # 2. First GPT call
@@ -114,12 +129,11 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
         )
         msg = response.choices[0].message
 
-        # 3. If GPT calls function, dispatch, append, and call again (for user summary)
+        # 3. If GPT calls function, dispatch and summarize
         if msg.function_call:
             fname = msg.function_call.name
             args = json.loads(msg.function_call.arguments or "{}")
             result = function_dispatch(fname, args)
-            # append function call/result to messages, let GPT summarize/present
             messages.append({
                 "role": "assistant",
                 "function_call": {
@@ -139,9 +153,14 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
                 function_call="none"
             )
             msg2 = response2.choices[0].message
+            if debug:
+                print("=== FUNC-CALL CONTEXT ===")
+                print(json.dumps(messages, ensure_ascii=False, indent=2))
+                print("=== FUNC-CALL RESPONSE ===")
+                print(msg2.content)
             return msg2.content.strip() if msg2.content else result
 
-        # 4. Otherwise, just reply GPT answer
+        # 4. Otherwise, just reply
         return msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
     except Exception as e:
         print(f"[function_calling] {e}")
