@@ -1,6 +1,7 @@
 # gold_utils.py
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 def get_gold_price():
     try:
@@ -13,10 +14,20 @@ def get_gold_price():
             )
         }
         resp = requests.get(url, headers=headers, timeout=10)
+        resp.encoding = resp.apparent_encoding  # สำคัญกับเว็บไทย
         soup = BeautifulSoup(resp.text, "html.parser")
+
+        # หาวันที่
+        date_tag = soup.find("div", class_="date-time")
+        date_text = ""
+        if date_tag:
+            date_text = date_tag.get_text(strip=True).replace("ณ วันที่", "📅 วันที่").replace("ณ เวลา", "⏰")
+
+        # ตารางราคาทอง
         table = soup.find("table", class_="table-price")
         if not table:
             return "❌ ไม่พบข้อมูลราคาทองในขณะนี้"
+
         rows = table.find_all("tr")
         prices = []
         for row in rows:
@@ -27,8 +38,10 @@ def get_gold_price():
                 elif "ทองรูปพรรณ" in cols[0]:
                     prices.append(f"ทองรูปพรรณ: รับซื้อ {cols[1]} / ขายออก {cols[2]}")
         if prices:
-            return "📅 ราคาทองคำวันนี้ (สมาคมค้าทอง):\n" + "\n".join(prices)
+            result = (date_text + "\n" if date_text else "") + "📊 ราคาทองวันนี้ (สมาคมค้าทอง):\n" + "\n".join(prices)
+            return result
         else:
             return "❌ ไม่พบราคาทองจากเว็บไซต์หลัก"
     except Exception as e:
+        print(f"[gold_utils] error: {e}")
         return "❌ ไม่สามารถดึงข้อมูลราคาทองได้ในขณะนี้"
