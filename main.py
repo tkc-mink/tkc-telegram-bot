@@ -2,7 +2,7 @@ import os
 import sys
 import traceback
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 from handlers import handle_message
 
 app = Flask(__name__)
@@ -18,13 +18,20 @@ def index():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        # Log basic request info
+        # -- Security: Check if Telegram only (Optional) --
+        # if request.headers.get("User-Agent", "").startswith("TelegramBot"):
+        #     pass
+        # else:
+        #     log_event("⚠️ Forbidden request source")
+        #     abort(403)
+        
+        # -- Logging --
         log_event(f"Received webhook: {request.method} {request.path}")
-        # For extra debug, log headers only if needed
+        # For extra debug:
         # log_event(f"Headers: {dict(request.headers)}")
         data = request.get_json(force=True, silent=True)
         if data:
-            log_event(f"Telegram Data: {str(data)[:256]}")
+            log_event(f"Telegram Data: {str(data)[:300]}")
             handle_message(data)
         else:
             log_event("⚠️ No data received from Telegram.")
@@ -38,9 +45,10 @@ def webhook():
 def healthz():
     return jsonify({"status": "healthy"}), 200
 
-# Optionally add CORS headers
-# from flask_cors import CORS
-# CORS(app)
+# Optional: OCR/Document Test endpoint (internal use only)
+@app.route('/docs', methods=['GET'])
+def docs():
+    return jsonify({"supported_formats": [".pdf", ".docx", ".txt", ".xlsx", ".pptx", ".jpg", ".png"]})
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
