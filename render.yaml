@@ -2,7 +2,7 @@ services:
   - type: web
     name: tkc-telegram-bot
     env: python
-    buildCommand: ""
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn main:app
     envVars:
       - key: TELEGRAM_TOKEN
@@ -13,3 +13,6 @@ services:
         sync: false
       - key: WEBHOOK_URL
         sync: false
+    # optional:
+    # - key: TZ
+    #   value: Asia/Bangkok
