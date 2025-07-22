@@ -1,3 +1,5 @@
+# handlers.py
+
 import os
 import json
 from datetime import datetime
@@ -25,13 +27,13 @@ MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY    = 15
 EXEMPT_USER_IDS      = ["6849909227"]  # Telegram IDs ไม่ถูกจำกัด
 
+# --- JSON helpers ---
 def load_json_safe(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except:
         return {}
-
 def save_json_safe(data, path):
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -39,6 +41,7 @@ def save_json_safe(data, path):
     except Exception as e:
         print(f"[save_json_safe:{path}] {e}")
 
+# --- Usage counting ---
 def check_and_increase_usage(user_id, filepath, limit):
     today = datetime.now().strftime("%Y-%m-%d")
     usage = load_json_safe(filepath)
@@ -50,49 +53,42 @@ def check_and_increase_usage(user_id, filepath, limit):
     save_json_safe(usage, filepath)
     return True
 
+# --- Context helpers ---
 def load_context():
     return load_json_safe(CONTEXT_FILE)
-
 def save_context(ctx):
     save_json_safe(ctx, CONTEXT_FILE)
-
 def update_context(user_id, text):
     ctx = load_context()
     ctx.setdefault(user_id, []).append(text)
-    ctx[user_id] = ctx[user_id][-8:]  # เพิ่ม context ย้อนหลังได้มากขึ้น
+    ctx[user_id] = ctx[user_id][-6:]  # keep 6 latest for fallback
     save_context(ctx)
-
 def get_context(user_id):
     return load_context().get(user_id, [])
-
 def is_waiting_review(user_id):
     ctx = get_context(user_id)
     return ctx and ctx[-1] == "__wait_review__"
 
+# --- Location helpers ---
 def load_location():
     return load_json_safe(LOCATION_FILE)
-
 def save_location(loc):
     save_json_safe(loc, LOCATION_FILE)
-
 def update_location(user_id, lat, lon):
     loc = load_location()
     loc[user_id] = {"lat": lat, "lon": lon, "ts": datetime.now().isoformat()}
     save_location(loc)
-
 def get_user_location(user_id):
     return load_location().get(user_id)
 
+# --- Telegram Send ---
 def send_message(chat_id, text):
     try:
-        resp = requests.post(
+        requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={"chat_id": chat_id, "text": text},
             timeout=5
         )
-        # ตรวจสอบ error จาก telegram (ถ้ามี)
-        if resp.status_code != 200:
-            print(f"[send_message][telegram] error: {resp.text}")
     except Exception as e:
         print(f"[send_message] {e}")
 
@@ -101,13 +97,11 @@ def send_photo(chat_id, photo_url, caption=None):
     if caption:
         payload["caption"] = caption
     try:
-        resp = requests.post(
+        requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
             json=payload,
             timeout=5
         )
-        if resp.status_code != 200:
-            print(f"[send_photo][telegram] error: {resp.text}")
     except Exception as e:
         print(f"[send_photo] {e}")
 
@@ -133,105 +127,121 @@ def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแห
     except Exception as e:
         print(f"[ask_for_location] {e}")
 
+# --- Context reset logic ---
+def should_reset_context(new_text, prev_context):
+    if not prev_context:
+        return False
+    last = prev_context[-1] if isinstance(prev_context, list) and prev_context else ""
+    # ตัวอย่างแยก topic (keyword-based)
+    topics = ["ทอง", "หวย", "อากาศ", "ข่าว", "หุ้น", "น้ำมัน", "สุขภาพ", "ฟุตบอล"]
+    if any(t in last for t in topics) and not any(t in new_text for t in topics):
+        return True
+    # user พิมพ์รีเซ็ต
+    if new_text.strip().lower() in ["/reset", "เริ่มใหม่", "รีเซ็ต"]:
+        return True
+    return False
+
+# --- Image search ---
 def handle_image_search(chat_id, user_id, text, ctx):
-    try:
-        if user_id not in EXEMPT_USER_IDS:
-            if not check_and_increase_usage(user_id, IMAGE_USAGE_FILE, MAX_IMAGE_PER_DAY):
-                send_message(chat_id, f"❌ ครบ {MAX_IMAGE_PER_DAY} รูปวันนี้แล้ว")
-                return
-        kw = text
-        imgs = robust_image_search(kw)
-        if imgs:
-            for url in imgs[:3]:
-                send_photo(chat_id, url, caption=f"ผลลัพธ์: {kw}")
-        else:
-            send_message(chat_id, f"ไม่พบภาพสำหรับ '{kw}'")
-    except Exception as e:
-        print(f"[handle_image_search] {e}")
-        send_message(chat_id, "❌ เกิดข้อผิดพลาดขณะค้นหารูปภาพ")
+    if user_id not in EXEMPT_USER_IDS:
+        if not check_and_increase_usage(user_id, IMAGE_USAGE_FILE, MAX_IMAGE_PER_DAY):
+            send_message(chat_id, f"❌ ครบ {MAX_IMAGE_PER_DAY} รูปวันนี้แล้ว")
+            return
+    kw = text
+    imgs = robust_image_search(kw)
+    if imgs:
+        for url in imgs[:3]:
+            send_photo(chat_id, url, caption=f"ผลลัพธ์: {kw}")
+    else:
+        send_message(chat_id, f"ไม่พบภาพสำหรับ '{kw}'")
 
+# --- Main Handler ---
 def handle_message(data):
-    try:
-        msg = data.get("message", {})
-        chat_id = msg.get("chat", {}).get("id")
-        if not chat_id:
-            return
-        user_text = msg.get("caption", "") or msg.get("text", "")
-        user_id   = str(chat_id)
+    msg = data.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    if not chat_id:
+        return
+    user_text = msg.get("caption", "") or msg.get("text", "")
+    user_id   = str(chat_id)
 
-        # 1) รับ Location
-        if "location" in msg:
-            lat = msg["location"].get("latitude")
-            lon = msg["location"].get("longitude")
-            if lat is not None and lon is not None:
-                update_location(user_id, lat, lon)
-                send_message(chat_id, "✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย")
-            else:
-                send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
+    # 1) Location
+    if "location" in msg:
+        lat = msg["location"].get("latitude")
+        lon = msg["location"].get("longitude")
+        if lat is not None and lon is not None:
+            update_location(user_id, lat, lon)
+            send_message(chat_id, "✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย")
+        else:
+            send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
+        return
+
+    # /reset context manual
+    if user_text.strip().lower() in ["/reset", "เริ่มใหม่", "รีเซ็ต"]:
+        save_context({user_id: []})
+        send_message(chat_id, "🧹 เริ่มต้นสนทนาใหม่แล้วครับ!")
+        return
+
+    if user_text.strip() == "📍 แชร์ตำแหน่งของคุณ":
+        ask_for_location(chat_id)
+        return
+
+    # --- Load & update context (with smart reset) ---
+    ctx = get_context(user_id)
+    if should_reset_context(user_text, ctx):
+        ctx = []
+        save_context({user_id: []})
+    update_context(user_id, user_text)
+    ctx = get_context(user_id)  # reload after update
+
+    # 3) /my_history
+    if user_text.strip() == "/my_history":
+        history = get_user_history(user_id, limit=10)
+        if not history:
+            send_message(chat_id, "ยังไม่มีประวัติการถาม-ตอบของคุณ")
+        else:
+            out = "\n\n".join(f"[{it['date']}] ❓{it['q']}\n➡️ {it['a']}" for it in history)
+            send_message(chat_id, f"ประวัติ 10 ล่าสุด:\n\n{out}")
+        return
+
+    # 4) รีวิว
+    if need_review_today(user_id) and not is_waiting_review(user_id):
+        send_message(chat_id, "❓ กรุณารีวิววันนี้ (1-5):")
+        update_context(user_id, "__wait_review__")
+        return
+    if is_waiting_review(user_id) and user_text.strip() in ["1","2","3","4","5"]:
+        set_review(user_id, int(user_text.strip()))
+        send_message(chat_id, "✅ ขอบคุณสำหรับรีวิวครับ!")
+        return
+
+    # 5) จำกัดรอบถาม
+    if user_id not in EXEMPT_USER_IDS:
+        if not check_and_increase_usage(user_id, USAGE_FILE, MAX_QUESTION_PER_DAY):
+            send_message(chat_id, f"❌ ครบ {MAX_QUESTION_PER_DAY} คำถามแล้ววันนี้")
             return
 
-        if user_text and user_text.strip() == "📍 แชร์ตำแหน่งของคุณ":
+    txt = user_text.lower()
+    loc = get_user_location(user_id)
+
+    # 6) Live info fast-lane
+    if "อากาศ" in txt or "weather" in txt:
+        if loc and loc.get("lat") and loc.get("lon"):
+            reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
+            send_message(chat_id, reply)
+        else:
             ask_for_location(chat_id)
-            return
+        return
 
-        # 2) Update Context
-        update_context(user_id, user_text)
-        ctx = get_context(user_id)
+    if any(k in txt for k in ["ขอรูป","รูป","image","photo"]):
+        handle_image_search(chat_id, user_id, user_text, ctx)
+        log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
+        return
 
-        # 3) /my_history
-        if user_text.strip() == "/my_history":
-            history = get_user_history(user_id, limit=10)
-            if not history:
-                send_message(chat_id, "ยังไม่มีประวัติการถาม-ตอบของคุณ")
-            else:
-                out = "\n\n".join(f"[{it['date']}] ❓{it['q']}\n➡️ {it['a']}" for it in history)
-                send_message(chat_id, f"ประวัติ 10 ล่าสุด:\n\n{out}")
-            return
+    # == Fallback → GPT-4o + Function Calling (Context-aware) ==
+    try:
+        reply = process_with_function_calling(user_text, ctx=ctx[-4:])  # ส่ง context ล่าสุด 4 exchange
+    except Exception as e:
+        print(f"[GPT function_calling] {e}")
+        reply = "❌ ระบบขัดข้อง ลองใหม่อีกครั้ง"
 
-        # 4) รีวิว
-        if need_review_today(user_id) and not is_waiting_review(user_id):
-            send_message(chat_id, "❓ กรุณารีวิววันนี้ (1-5):")
-            update_context(user_id, "__wait_review__")
-            return
-        if is_waiting_review(user_id) and user_text.strip() in ["1","2","3","4","5"]:
-            set_review(user_id, int(user_text.strip()))
-            send_message(chat_id, "✅ ขอบคุณสำหรับรีวิวครับ!")
-            return
-
-        # 5) จำกัดรอบถาม
-        if user_id not in EXEMPT_USER_IDS:
-            if not check_and_increase_usage(user_id, USAGE_FILE, MAX_QUESTION_PER_DAY):
-                send_message(chat_id, f"❌ ครบ {MAX_QUESTION_PER_DAY} คำถามแล้ววันนี้")
-                return
-
-        txt = user_text.lower() if user_text else ""
-        loc = get_user_location(user_id)
-
-        # 6) อากาศ
-        if "อากาศ" in txt or "weather" in txt:
-            if loc and loc.get("lat") and loc.get("lon"):
-                reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
-                send_message(chat_id, reply)
-            else:
-                ask_for_location(chat_id)
-            return
-
-        # 7) ภาพ
-        if any(k in txt for k in ["ขอรูป","รูป","image","photo"]):
-            handle_image_search(chat_id, user_id, user_text, ctx)
-            log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
-            return
-
-        # == Fallback → GPT-4o + Function Calling (Context-aware) ==
-        try:
-            reply = process_with_function_calling(user_text, ctx=ctx)
-        except Exception as e:
-            print(f"[GPT function_calling] {e}")
-            reply = "❌ ระบบขัดข้อง ลองใหม่อีกครั้ง"
-
-        log_message(user_id, user_text, reply)
-        send_message(chat_id, reply)
-
-    except Exception as err:
-        print(f"[handlers.py][main handler] ERROR: {err}")
-        send_message(chat_id, "❌ เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง")
+    log_message(user_id, user_text, reply)
+    send_message(chat_id, reply)
