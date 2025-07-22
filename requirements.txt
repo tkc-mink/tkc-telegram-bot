@@ -11,4 +11,4 @@ pymupdf==1.23.20
 python-pptx==0.6.23
 openpyxl==3.1.2
 pandas==2.2.2
-Pillow==10.3.0
+# Pillow==10.3.0   # ถ้ามีใช้กับรูปภาพ (เช่น ฟีเจอร์ vision, GPT4-vision, ควรเก็บไว้)
