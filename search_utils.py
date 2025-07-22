@@ -3,15 +3,15 @@ from bs4 import BeautifulSoup
 from urllib.parse import quote
 import json
 
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/125.0.0.0 Safari/537.36"
+)
+
 def fetch_google_images(query, lang_out="th", max_results=3):
     """ค้นหารูปจาก Google Images (public, no API)"""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0.0.0 Safari/537.36"
-        )
-    }
+    headers = {"User-Agent": UA}
     url = f"https://www.google.com/search?q={quote(query)}&hl={lang_out}&tbm=isch"
     try:
         res = requests.get(url, headers=headers, timeout=10)
@@ -20,10 +20,12 @@ def fetch_google_images(query, lang_out="th", max_results=3):
             return []
         soup = BeautifulSoup(res.text, "lxml")
         image_results = []
-        # Google ชอบเปลี่ยน selector บ่อย
+        # Google ชอบเปลี่ยน selector บ่อย — ต้องดักกรณี alt="Image"
         for img in soup.select('img[src^="https"]'):
             src = img.get("src")
-            if src and src.startswith("https"):
+            if src and src.startswith("https") and ("gstatic.com" in src or "googleusercontent.com" in src):
+                image_results.append(src)
+            elif src and src.startswith("https") and len(src) > 80:
                 image_results.append(src)
             if len(image_results) >= max_results:
                 break
@@ -36,13 +38,7 @@ def fetch_google_images(query, lang_out="th", max_results=3):
 
 def fetch_bing_images(query, max_results=3):
     """ค้นหารูปจาก Bing Images (public)"""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0.0.0 Safari/537.36"
-        )
-    }
+    headers = {"User-Agent": UA}
     url = f"https://www.bing.com/images/search?q={quote(query)}"
     try:
         res = requests.get(url, headers=headers, timeout=10)
@@ -71,19 +67,12 @@ def fetch_bing_images(query, max_results=3):
 
 def fetch_duckduckgo_images(query, max_results=3):
     """ค้นหารูปจาก DuckDuckGo Images (public)"""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0.0.0 Safari/537.36"
-        )
-    }
+    headers = {"User-Agent": UA}
     try:
         session = requests.Session()
         url = f"https://duckduckgo.com/?q={quote(query)}&iar=images&iax=images&ia=images"
         res = session.get(url, headers=headers, timeout=10)
         vqd = None
-        # หา token vqd สำหรับใช้ API
         for line in res.text.splitlines():
             if "vqd=" in line:
                 idx = line.find("vqd=")
@@ -108,18 +97,14 @@ def robust_image_search(query, lang_out="th", max_results=3):
     """
     ค้นหารูปโดยลำดับ: Google > Bing > DuckDuckGo
     """
-    # 1. Google
     results = fetch_google_images(query, lang_out=lang_out, max_results=max_results)
     if results:
         return results
-    # 2. Bing
     results = fetch_bing_images(query, max_results=max_results)
     if results:
         return results
-    # 3. DuckDuckGo
     results = fetch_duckduckgo_images(query, max_results=max_results)
     if results:
         return results
-    # ไม่เจอเลย
     print("[robust_image_search] ไม่พบรูปจากทุก search")
     return []
