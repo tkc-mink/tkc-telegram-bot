@@ -7,7 +7,7 @@ beautifulsoup4==4.12.3
 lxml==5.2.1
 langdetect==1.0.9
 pdfplumber==0.10.3
-pymupdf==1.23.20
+PyPDF2==3.0.1         # เพิ่ม PyPDF2 (ตัว P ใหญ่)
 python-pptx==0.6.23
 openpyxl==3.1.2
 pandas==2.2.2
