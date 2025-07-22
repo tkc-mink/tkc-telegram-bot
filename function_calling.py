@@ -139,4 +139,4 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
         return msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
     except Exception as e:
         print(f"[function_calling] {e}")
-        return "❌ ระบบ
+        return "❌ ระบบ"
