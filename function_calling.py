@@ -11,6 +11,7 @@ from serp_utils    import get_stock_info, get_oil_price, get_lottery_result, get
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# == Register Functions ==
 FUNCTIONS = [
     {
         "name": "get_weather_forecast",
@@ -74,6 +75,7 @@ SYSTEM_PROMPT = (
 )
 
 def function_dispatch(fname, args):
+    """แมปชื่อฟังก์ชัน → ไปเรียก function ที่ถูกต้อง"""
     if fname == "get_weather_forecast":
         return get_weather_forecast(text=args.get("text", ""))
     elif fname == "get_gold_price":
@@ -92,16 +94,18 @@ def function_dispatch(fname, args):
         return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
 
 def process_with_function_calling(user_message: str, ctx=None) -> str:
+    """
+    เรียกใช้ OpenAI function calling (multi-turn) พร้อม inject context ย้อนหลัง
+    """
     try:
-        # 1. วางโครง context conversation
-        messages = []
-        messages.append({"role": "system", "content": SYSTEM_PROMPT})
+        # 1. Prepare conversation context
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if ctx:
             for prev in ctx[-5:]:
                 messages.append({"role": "user", "content": prev})
         messages.append({"role": "user", "content": user_message})
 
-        # 2. เรียก GPT (รอบแรก)
+        # 2. First GPT call
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -110,22 +114,24 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
         )
         msg = response.choices[0].message
 
-        # 3. ถ้า GPT ตอบเป็น function_call → จัดการฟังก์ชัน, เพิ่ม context, วนส่งใหม่ (multi-turn)
+        # 3. If GPT calls function, dispatch, append, and call again (for user summary)
         if msg.function_call:
             fname = msg.function_call.name
             args = json.loads(msg.function_call.arguments or "{}")
             result = function_dispatch(fname, args)
-            # เติมการเรียก function และผลลัพธ์ลง context แล้วให้ GPT สรุปให้อีกรอบ
+            # append function call/result to messages, let GPT summarize/present
             messages.append({
                 "role": "assistant",
-                "function_call": {"name": fname, "arguments": json.dumps(args, ensure_ascii=False)}
+                "function_call": {
+                    "name": fname,
+                    "arguments": json.dumps(args, ensure_ascii=False)
+                }
             })
             messages.append({
                 "role": "function",
                 "name": fname,
                 "content": result
             })
-            # call gpt อีก 1 รอบเพื่อ summarize หรือแปลให้ user
             response2 = client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
@@ -135,8 +141,8 @@ def process_with_function_calling(user_message: str, ctx=None) -> str:
             msg2 = response2.choices[0].message
             return msg2.content.strip() if msg2.content else result
 
-        # 4. ถ้า GPT ตอบเองเลย (content)
+        # 4. Otherwise, just reply GPT answer
         return msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
     except Exception as e:
         print(f"[function_calling] {e}")
-        return "❌ ระบบ"
+        return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
