@@ -303,7 +303,7 @@ def handle_message(data):
         os.remove(file_path)
         return
 
-    # 3) Photo/Image
+    # 3) Photo/Image (เฉพาะค้นหารูป ไม่รับวิเคราะห์เนื้อหา/ข้อความ)
     if "photo" in msg:
         send_message(chat_id, "ขออภัย ขณะนี้ยังไม่รองรับการอ่านข้อความหรือวิเคราะห์เนื้อหาจากรูปภาพโดยตรง หากต้องการค้นหารูปภาพให้พิมพ์ว่า 'ขอรูป...' หรือคำค้นภาพที่ต้องการ")
         return
@@ -351,6 +351,7 @@ def handle_message(data):
     txt = user_text.lower()
     loc = get_user_location(user_id)
 
+    # สภาพอากาศ
     if "อากาศ" in txt or "weather" in txt:
         if loc and loc.get("lat") and loc.get("lon"):
             reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
@@ -359,11 +360,13 @@ def handle_message(data):
             ask_for_location(chat_id)
         return
 
+    # ค้นหารูป
     if any(k in txt for k in ["ขอรูป","รูป","image","photo"]):
         handle_image_search(chat_id, user_id, user_text, ctx)
         log_message(user_id, user_text, "ส่งรูปภาพ (ดูในแชท)")
         return
 
+    # ฟังก์ชันอื่นๆ ผ่าน GPT/Function calling
     try:
         reply = process_with_function_calling(user_text, ctx=ctx[-4:])
     except Exception as e:
