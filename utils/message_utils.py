@@ -3,19 +3,23 @@
 import os
 import requests
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+def get_telegram_token():
+    return os.getenv("TELEGRAM_TOKEN")
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, parse_mode=None):
     """
-    ส่งข้อความไปที่ Telegram Chat
+    ส่งข้อความไปที่ Telegram Chat (รองรับ Markdown/HTML)
     """
     try:
+        payload = {
+            "chat_id": chat_id,
+            "text": text[:4096]
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
         requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text[:4096]
-            },
+            f"https://api.telegram.org/bot{get_telegram_token()}/sendMessage",
+            json=payload,
             timeout=10
         )
     except Exception as e:
@@ -30,7 +34,7 @@ def send_photo(chat_id, photo_url, caption=None):
         payload["caption"] = caption
     try:
         requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto",
+            f"https://api.telegram.org/bot{get_telegram_token()}/sendPhoto",
             json=payload,
             timeout=10
         )
@@ -55,7 +59,7 @@ def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแห
     }
     try:
         requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            f"https://api.telegram.org/bot{get_telegram_token()}/sendMessage",
             json=payload,
             timeout=5
         )
