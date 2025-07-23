@@ -1,18 +1,17 @@
 # handlers/main_handler.py
 import traceback
+from utils.message_utils import send_message
 
 from handlers.history import handle_history
-from handlers.review import handle_review
+from handlers.review  import handle_review
 from handlers.weather import handle_weather
-from handlers.doc import handle_doc
-from handlers.image import handle_image
-from handlers.gold import handle_gold
+from handlers.doc     import handle_doc
+from handlers.image   import handle_image
+from handlers.gold    import handle_gold
 from handlers.lottery import handle_lottery
-from handlers.stock import handle_stock
-from handlers.crypto import handle_crypto
-from handlers.oil import handle_oil
-
-from utils.message_utils import send_message
+from handlers.stock   import handle_stock
+from handlers.crypto  import handle_crypto
+from handlers.oil     import handle_oil
 
 def handle_message(data: dict):
     msg = data.get("message", {})
@@ -48,15 +47,9 @@ def handle_message(data: dict):
         elif user_text_low.startswith("/start") or user_text_low.startswith("/help"):
             send_message(chat_id,
                 "ยินดีต้อนรับสู่ TKC Bot 🦊\n\n"
-                "- /my_history ประวัติ\n"
-                "- /gold ราคาทอง\n"
-                "- /lottery ผลสลาก\n"
-                "- /stock <symbol>\n"
-                "- /crypto <symbol>\n"
-                "- /oil ราคาน้ำมันโลก\n"
-                "- /weather อากาศ (ต้องแชร์ location ก่อน)\n"
-                "- /review ให้คะแนนบอท\n"
-                "- ส่งเอกสาร (PDF/Word/Excel/PPT/TXT) เพื่อสรุป\n"
+                "- /my_history ประวัติ\n- /gold ราคาทอง\n- /lottery ผลสลาก\n- /stock <symbol>\n"
+                "- /crypto <symbol>\n- /oil ราคาน้ำมันโลก\n- /weather อากาศ (ต้องแชร์ location ก่อน)\n"
+                "- /review ให้คะแนนบอท\n- ส่งเอกสาร (PDF/Word/Excel/PPT/TXT) เพื่อสรุป"
             )
         elif user_text == "":
             send_message(chat_id, "⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help")
