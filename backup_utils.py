@@ -96,7 +96,6 @@ def restore_all():
 def setup_backup_scheduler():
     from apscheduler.schedulers.background import BackgroundScheduler
     import pytz
-    from datetime import datetime, time as dtime
 
     def backup_job():
         print("[SCHEDULED BACKUP] Starting backup job...")
@@ -108,8 +107,8 @@ def setup_backup_scheduler():
     scheduler.start()
     print("[SCHEDULED BACKUP] Backup scheduler started")
 
-# (ใน main.py)
+# ใช้ใน main.py (หรือ bot startup)
 if __name__ == "__main__":
-    restore_all()          # Restore ทุกครั้งที่เริ่มระบบ
-    setup_backup_scheduler()  # เปิด backup อัตโนมัติ
+    restore_all()              # Restore ทุกครั้งที่เริ่มระบบ
+    setup_backup_scheduler()   # เริ่ม backup อัตโนมัติ
     # ...start bot/app ตามปกติ...
