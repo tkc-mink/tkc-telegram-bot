@@ -18,13 +18,14 @@ def handle_message(data):
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     user_text = msg.get("caption", "") or msg.get("text", "")
-
-    if not chat_id or not user_text:
-        return
-
+    user_text = str(user_text or "").strip()
     user_text_low = user_text.lower()
 
-    # ตัวอย่าง dispatch ที่รองรับทั้ง /command และ keyword ภาษาไทย
+    # Safety: ไม่ระบุ chat_id หรือไม่มี text/message เลย (ปล่อยผ่าน)
+    if not chat_id:
+        return
+
+    # -- คำสั่ง command ต่างๆ --
     if user_text_low.startswith("/my_history"):
         handle_history(chat_id, user_text)
     elif user_text_low.startswith("/gold"):
@@ -43,9 +44,21 @@ def handle_message(data):
         handle_image(chat_id, user_text)
     elif user_text_low.startswith("/review"):
         handle_review(chat_id, user_text)
+    # รับ document (Upload PDF/Excel/Docx)
     elif user_text_low.startswith("/doc") or msg.get("document"):
         handle_doc(chat_id, msg)
+    elif user_text_low.startswith("/start") or user_text_low.startswith("/help"):
+        send_message(chat_id,
+            "ยินดีต้อนรับสู่ TKC Bot 🦊\n\n"
+            "- พิมพ์ /my_history ดูประวัติ\n"
+            "- พิมพ์ /gold ราคาทอง\n"
+            "- พิมพ์ /lottery ผลสลาก\n"
+            "- พิมพ์ /weather อากาศ\n"
+            "- พิมพ์ /review รีวิวบอท\n"
+            "- ส่งเอกสาร (PDF, Excel, Word) เพื่อสรุป\n"
+            "- หรือถามอะไรก็ได้..."
+        )
     else:
-        # fallback message: ตอบกลับถ้าไม่เข้าเงื่อนไขใดเลย
-        send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่อีกครั้งหรือพิมพ์ /help")
+        # fallback (unknown command)
+        send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่อีกครั้ง หรือพิมพ์ /help")
 
