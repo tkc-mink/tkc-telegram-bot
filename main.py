@@ -3,13 +3,25 @@ import sys
 import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify, abort
+
 from handlers import handle_message
+from backup_utils import restore_all, setup_backup_scheduler  # <- เพิ่ม module backup
 
 app = Flask(__name__)
 
 def log_event(msg):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{now}] {msg}", file=sys.stderr, flush=True)
+
+@app.before_first_request
+def initialize():
+    log_event("Attempting restore all data from Google Drive...")
+    try:
+        restore_all()  # Restore ข้อมูลสำคัญทุกครั้งที่บอท start (deploy ใหม่)
+        setup_backup_scheduler()  # ตั้งเวลา backup ขึ้น Google Drive ทุกวัน 00:09 AM
+        log_event("Auto restore + backup scheduler started")
+    except Exception as e:
+        log_event(f"[INIT ERROR] {e}\n{traceback.format_exc()}")
 
 @app.route('/')
 def index():
@@ -18,17 +30,7 @@ def index():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        # -- Security: Check if Telegram only (Optional) --
-        # if request.headers.get("User-Agent", "").startswith("TelegramBot"):
-        #     pass
-        # else:
-        #     log_event("⚠️ Forbidden request source")
-        #     abort(403)
-        
-        # -- Logging --
         log_event(f"Received webhook: {request.method} {request.path}")
-        # For extra debug:
-        # log_event(f"Headers: {dict(request.headers)}")
         data = request.get_json(force=True, silent=True)
         if data:
             log_event(f"Telegram Data: {str(data)[:300]}")
@@ -40,12 +42,10 @@ def webhook():
         log_event(traceback.format_exc())
     return jsonify({"status": "ok"}), 200
 
-# Healthcheck route for uptime monitor
 @app.route('/healthz')
 def healthz():
     return jsonify({"status": "healthy"}), 200
 
-# Optional: OCR/Document Test endpoint (internal use only)
 @app.route('/docs', methods=['GET'])
 def docs():
     return jsonify({"supported_formats": [".pdf", ".docx", ".txt", ".xlsx", ".pptx", ".jpg", ".png"]})
