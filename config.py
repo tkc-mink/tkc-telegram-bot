@@ -1,4 +1,3 @@
-# config.py
 import os
 
 # ==========================
@@ -32,4 +31,5 @@ EXEMPT_USER_IDS      = ["6849909227"]
 # Other (for easy extend)
 # ==========================
 
-# สามารถเพิ่มค่า config อื่นๆ ที่ใช้ร่วมกันที่นี่ได้
+# สามารถเพิ่มค่า config อื่นๆ ที่ใช้ร่วมกันที่นี่ได้ เช่น
+# SUPPORTED_FORMATS = [".pdf", ".docx", ".txt", ".xlsx", ".pptx", ".jpg", ".png"]
