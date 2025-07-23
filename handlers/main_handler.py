@@ -12,55 +12,56 @@ from handlers.stock import handle_stock
 from handlers.crypto import handle_crypto
 from handlers.oil import handle_oil
 
-from utils.message_utils import send_message  # fallback
+from utils.message_utils import send_message
 
-def handle_message(data: dict) -> None:
-    msg = data.get("message", {}) or {}
-    chat = msg.get("chat") or {}
-    chat_id = chat.get("id")
-    text = (msg.get("caption") or msg.get("text") or "").strip()
-    t = text.lower()
+def handle_message(data: dict):
+    msg = data.get("message", {})
+    chat_id = msg.get("chat", {}).get("id")
+    user_text = msg.get("caption", "") or msg.get("text", "")
+    user_text = str(user_text or "").strip()
+    user_text_low = user_text.lower()
 
     if not chat_id:
         return
 
     try:
-        if t.startswith("/my_history"):
-            handle_history(chat_id, text)
-        elif t.startswith("/gold"):
-            handle_gold(chat_id, text)
-        elif t.startswith("/lottery"):
-            handle_lottery(chat_id, text)
-        elif t.startswith("/stock"):
-            handle_stock(chat_id, text)
-        elif t.startswith("/crypto"):
-            handle_crypto(chat_id, text)
-        elif t.startswith("/oil"):
-            handle_oil(chat_id, text)
-        elif t.startswith("/weather") or "อากาศ" in t:
-            handle_weather(chat_id, text)
-        elif "ขอรูป" in t or t.startswith("/image"):
-            handle_image(chat_id, text)
-        elif t.startswith("/review"):
-            handle_review(chat_id, text)
-        elif t.startswith("/doc") or msg.get("document"):
+        if user_text_low.startswith("/my_history"):
+            handle_history(chat_id, user_text)
+        elif user_text_low.startswith("/gold"):
+            handle_gold(chat_id, user_text)
+        elif user_text_low.startswith("/lottery"):
+            handle_lottery(chat_id, user_text)
+        elif user_text_low.startswith("/stock"):
+            handle_stock(chat_id, user_text)
+        elif user_text_low.startswith("/crypto"):
+            handle_crypto(chat_id, user_text)
+        elif user_text_low.startswith("/oil"):
+            handle_oil(chat_id, user_text)
+        elif user_text_low.startswith("/weather") or "อากาศ" in user_text_low:
+            handle_weather(chat_id, user_text)
+        elif "ขอรูป" in user_text_low or "/image" in user_text_low:
+            handle_image(chat_id, user_text)
+        elif user_text_low.startswith("/review"):
+            handle_review(chat_id, user_text)
+        elif user_text_low.startswith("/doc") or msg.get("document"):
             handle_doc(chat_id, msg)
-        elif t.startswith("/start") or t.startswith("/help"):
+        elif user_text_low.startswith("/start") or user_text_low.startswith("/help"):
             send_message(chat_id,
                 "ยินดีต้อนรับสู่ TKC Bot 🦊\n\n"
-                "- /my_history ดูประวัติ\n"
+                "- /my_history ประวัติ\n"
                 "- /gold ราคาทอง\n"
                 "- /lottery ผลสลาก\n"
-                "- /stock หุ้น  /crypto คริปโต  /oil น้ำมัน\n"
-                "- /weather อากาศ (ต้องแชร์ตำแหน่งก่อน)\n"
-                "- /review รีวิวบอท\n"
-                "- ส่งเอกสาร (PDF/Word/Excel/PPTX/TXT) เพื่อสรุป\n"
-                "- พิมพ์ /help เพื่อดูคำสั่งอีกครั้ง"
+                "- /stock <symbol>\n"
+                "- /crypto <symbol>\n"
+                "- /oil ราคาน้ำมันโลก\n"
+                "- /weather อากาศ (ต้องแชร์ location ก่อน)\n"
+                "- /review ให้คะแนนบอท\n"
+                "- ส่งเอกสาร (PDF/Word/Excel/PPT/TXT) เพื่อสรุป\n"
             )
-        elif text == "":
+        elif user_text == "":
             send_message(chat_id, "⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help")
         else:
-            send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่อีกครั้ง หรือพิมพ์ /help")
+            send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่ หรือพิมพ์ /help")
     except Exception as e:
         send_message(chat_id, f"❌ ระบบขัดข้อง: {e}")
-        print("[HANDLE_MESSAGE ERROR]", traceback.format_exc())
+        print(traceback.format_exc())
