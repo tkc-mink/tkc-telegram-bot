@@ -1,91 +1,58 @@
-# context_utils.py
-
+# utils/context_utils.py
 import json
 import os
+from datetime import datetime
 
-CONTEXT_FILE = "context_logs.json"
+# ---- PATHS ----
+CONTEXT_FILE   = os.getenv("CONTEXT_FILE",   "context_history.json")
+LOCATION_FILE  = os.getenv("LOCATION_FILE",  "location_logs.json")
 
-def load_context(user_id):
-    """โหลด context ทั้งหมดของ user (list of message-dict)"""
+# ------------- Generic JSON helpers -------------
+def _load_json(path: str) -> dict:
     try:
-        if not os.path.exists(CONTEXT_FILE):
-            return []
-        with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get(user_id, [])
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception as e:
-        print(f"[context_utils.load_context] {e}")
-        return []
+        print(f"[context_utils._load_json:{path}] {e}")
+        return {}
 
-def save_context(user_id, context):
-    """เซฟ context (list of message-dict) ของ user"""
+def _save_json(data: dict, path: str) -> None:
     try:
-        data = {}
-        if os.path.exists(CONTEXT_FILE):
-            with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-                try:
-                    data = json.load(f)
-                except Exception:
-                    data = {}
-        data[user_id] = context
-        with open(CONTEXT_FILE, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[context_utils.save_context] {e}")
+        print(f"[context_utils._save_json:{path}] {e}")
 
-def add_user_message(user_id, text):
-    """เพิ่ม message จาก user"""
-    context = load_context(user_id)
-    context.append({"role": "user", "content": text})
-    save_context(user_id, context)
+# ------------- Conversation context -------------
+def get_context(user_id: str):
+    return _load_json(CONTEXT_FILE).get(user_id, [])
 
-def add_assistant_message(user_id, text):
-    """เพิ่ม message จาก assistant"""
-    context = load_context(user_id)
-    context.append({"role": "assistant", "content": text})
-    save_context(user_id, context)
+def save_context(all_ctx: dict):
+    _save_json(all_ctx, CONTEXT_FILE)
 
-def get_last_messages(user_id, n=6):
-    """
-    ดึง message ล่าสุด n รายการของ user (ทั้ง user และ assistant)
-    Format สำหรับ OpenAI API: [{"role":"user","content":"..."}, ...]
-    """
-    context = load_context(user_id)
-    return context[-n:] if context else []
+def update_context(user_id: str, text: str, keep_last: int = 6):
+    all_ctx = _load_json(CONTEXT_FILE)
+    all_ctx.setdefault(user_id, []).append(text)
+    all_ctx[user_id] = all_ctx[user_id][-keep_last:]
+    _save_json(all_ctx, CONTEXT_FILE)
 
-def clear_context(user_id):
-    """ลบ context ทั้งหมดของ user"""
-    try:
-        data = {}
-        if os.path.exists(CONTEXT_FILE):
-            with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-                try:
-                    data = json.load(f)
-                except Exception:
-                    data = {}
-        if user_id in data:
-            del data[user_id]
-        with open(CONTEXT_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[context_utils.clear_context] {e}")
+def is_waiting_review(user_id: str) -> bool:
+    ctx = get_context(user_id)
+    return bool(ctx and ctx[-1] == "__wait_review__")
 
-def clear_all_context():
-    """ลบ context ของทุก user (admin use)"""
-    try:
-        with open(CONTEXT_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[context_utils.clear_all_context] {e}")
+# ------------- Location helpers -------------
+def get_user_location(user_id: str):
+    return _load_json(LOCATION_FILE).get(user_id)
 
-def list_all_users():
-    """คืนรายชื่อ user_id ที่มี context เก็บอยู่ (for admin/debug)"""
-    try:
-        if not os.path.exists(CONTEXT_FILE):
-            return []
-        with open(CONTEXT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return list(data.keys())
-    except Exception as e:
-        print(f"[context_utils.list_all_users] {e}")
-        return []
+def update_location(user_id: str, lat: float, lon: float):
+    data = _load_json(LOCATION_FILE)
+    data[user_id] = {"lat": lat, "lon": lon, "ts": datetime.now().isoformat()}
+    _save_json(data, LOCATION_FILE)
+
+# ------------- Reset helper -------------
+def reset_context(user_id: str):
+    all_ctx = _load_json(CONTEXT_FILE)
+    all_ctx[user_id] = []
+    _save_json(all_ctx, CONTEXT_FILE)
