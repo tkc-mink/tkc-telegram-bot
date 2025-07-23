@@ -20,10 +20,16 @@ BACKUP_FILES = [
 GDRIVE_BACKUP_FOLDER_ID = None  # ใส่ folder id หากต้องการ backup ไว้ในโฟลเดอร์บน Google Drive
 
 def get_drive_service():
+    """
+    คืนค่า Google Drive service (OAuth with service account)
+    """
     creds = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
     return build('drive', 'v3', credentials=creds)
 
 def delete_all_by_name(file_name):
+    """
+    ลบไฟล์ใน Google Drive ที่มีชื่อซ้ำกันทั้งหมด
+    """
     service = get_drive_service()
     query = f"name='{file_name}'"
     results = service.files().list(q=query, fields="files(id, name)", pageSize=100).execute()
@@ -35,6 +41,9 @@ def delete_all_by_name(file_name):
             print(f"Cannot delete file: {f['id']} - {e}")
 
 def upload_to_gdrive(file_path, gdrive_folder_id=None):
+    """
+    อัปโหลดไฟล์ไปยัง Google Drive (ลบไฟล์ชื่อเดิมก่อน)
+    """
     delete_all_by_name(os.path.basename(file_path))
     service = get_drive_service()
     file_metadata = {'name': os.path.basename(file_path)}
@@ -52,6 +61,9 @@ def search_file_by_name(file_name):
     return files[0]['id'] if files else None
 
 def download_from_gdrive(file_name, destination):
+    """
+    ดาวน์โหลดไฟล์ชื่อ file_name จาก Google Drive ลง path ที่กำหนด
+    """
     file_id = search_file_by_name(file_name)
     if not file_id:
         print(f"[restore] Not found {file_name} on Google Drive")
@@ -71,6 +83,9 @@ def download_from_gdrive(file_name, destination):
         return False
 
 def backup_all():
+    """
+    สำรองไฟล์ทั้งหมดใน BACKUP_FILES ไป Google Drive
+    """
     results = {}
     for file_path in BACKUP_FILES:
         try:
@@ -85,6 +100,9 @@ def backup_all():
     return results
 
 def restore_all():
+    """
+    คืนค่าไฟล์ทั้งหมดใน BACKUP_FILES จาก Google Drive
+    """
     for file_path in BACKUP_FILES:
         try:
             ok = download_from_gdrive(os.path.basename(file_path), file_path)
@@ -92,8 +110,10 @@ def restore_all():
         except Exception as e:
             print(f"[RESTORE ERROR] {file_path}: {e}")
 
-# --- (Optional) ใช้ APScheduler สำหรับ backup อัตโนมัติทุกวัน ---
 def setup_backup_scheduler():
+    """
+    ตั้ง scheduler (ใช้ APScheduler) ให้ backup ทุกวันเวลา 00:09 (Asia/Bangkok)
+    """
     from apscheduler.schedulers.background import BackgroundScheduler
     import pytz
 
@@ -102,14 +122,11 @@ def setup_backup_scheduler():
         backup_all()
 
     scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Bangkok'))
-    # ตั้งเวลา 00:09 ทุกวัน
     scheduler.add_job(backup_job, 'cron', hour=0, minute=9)
     scheduler.start()
     print("[SCHEDULED BACKUP] Backup scheduler started")
 
-# ใช้ใน main.py (หรือ bot startup)
 if __name__ == "__main__":
-    restore_all()              # Restore ทุกครั้งที่เริ่มระบบ
-    setup_backup_scheduler()   # เริ่ม backup อัตโนมัติ
+    restore_all()
+    setup_backup_scheduler()
     # ...start bot/app ตามปกติ...
-
