@@ -7,11 +7,11 @@ from flask import Flask, request, jsonify, abort
 from handlers import handle_message
 from backup_utils import restore_all, setup_backup_scheduler  # <- ใช้งาน backup
 
-# === เรียก restore ข้อมูล และตั้ง scheduler ตั้งแต่ต้น (รันรอบเดียวพอ) ===
+# === Restore & Schedule backup (one-time) ===
 try:
     print("[INIT] Attempting restore all data from Google Drive...")
-    restore_all()
-    setup_backup_scheduler()
+    restore_all()  # ดึงข้อมูลสำคัญจาก Google Drive (ถ้ามีไฟล์)
+    setup_backup_scheduler()  # ตั้ง scheduler backup อัตโนมัติทุกวัน
     print("[INIT] Auto restore + backup scheduler started")
 except Exception as e:
     print(f"[INIT ERROR] {e}\n{traceback.format_exc()}")
