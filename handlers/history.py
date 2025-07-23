@@ -16,4 +16,3 @@ async def my_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📜 <b>ประวัติคำถามย้อนหลัง:</b>\n\n{text}",
         parse_mode='HTML'
     )
-
