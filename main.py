@@ -5,23 +5,22 @@ from datetime import datetime
 from flask import Flask, request, jsonify, abort
 
 from handlers import handle_message
-from backup_utils import restore_all, setup_backup_scheduler  # <- เพิ่ม module backup
+from backup_utils import restore_all, setup_backup_scheduler  # <- ใช้งาน backup
+
+# === เรียก restore ข้อมูล และตั้ง scheduler ตั้งแต่ต้น (รันรอบเดียวพอ) ===
+try:
+    print("[INIT] Attempting restore all data from Google Drive...")
+    restore_all()
+    setup_backup_scheduler()
+    print("[INIT] Auto restore + backup scheduler started")
+except Exception as e:
+    print(f"[INIT ERROR] {e}\n{traceback.format_exc()}")
 
 app = Flask(__name__)
 
 def log_event(msg):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{now}] {msg}", file=sys.stderr, flush=True)
-
-@app.before_first_request
-def initialize():
-    log_event("Attempting restore all data from Google Drive...")
-    try:
-        restore_all()  # Restore ข้อมูลสำคัญทุกครั้งที่บอท start (deploy ใหม่)
-        setup_backup_scheduler()  # ตั้งเวลา backup ขึ้น Google Drive ทุกวัน 00:09 AM
-        log_event("Auto restore + backup scheduler started")
-    except Exception as e:
-        log_event(f"[INIT ERROR] {e}\n{traceback.format_exc()}")
 
 @app.route('/')
 def index():
