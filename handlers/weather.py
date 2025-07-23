@@ -1,22 +1,15 @@
 # handlers/weather.py
-
-from telegram import Update
-from telegram.ext import ContextTypes
+from utils.message_utils import send_message, ask_for_location
+from utils.context_utils import get_user_location  # ถ้าย้ายฟังก์ชันนี้ไว้ที่อื่น ปรับ path ให้ถูก
 from weather_utils import get_weather_forecast
-from history_utils import get_user_location
 
-async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_weather(chat_id: int, user_text: str):
     """
-    ตอบสภาพอากาศตามตำแหน่งล่าสุดของ user ถ้ามี location ในระบบ
+    ตอบสภาพอากาศจาก lat/lon ที่เคยบันทึกไว้
     """
-    user_id = update.effective_user.id
-    loc = get_user_location(user_id)
+    loc = get_user_location(str(chat_id))
     if loc and loc.get("lat") and loc.get("lon"):
-        try:
-            reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
-            await update.message.reply_text(reply)
-        except Exception as e:
-            await update.message.reply_text("❌ ไม่สามารถดึงข้อมูลอากาศได้ในขณะนี้")
-            print(f"[weather handler] ERROR: {e}")
+        reply = get_weather_forecast(text=None, lat=loc["lat"], lon=loc["lon"])
+        send_message(chat_id, reply)
     else:
-        await update.message.reply_text("กรุณาส่งตำแหน่งของคุณก่อนใช้คำสั่งนี้\nพิมพ์ /share_location หรือกดปุ่มแชร์ location ในแชท")
+        ask_for_location(chat_id, "ยังไม่มีตำแหน่งของคุณ กรุณาแชร์ตำแหน่งก่อนครับ")
