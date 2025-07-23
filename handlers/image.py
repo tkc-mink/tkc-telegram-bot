@@ -5,8 +5,10 @@ from history_utils import log_message
 
 async def image_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
     text = update.message.text
+    if not text:
+        await update.message.reply_text("พิมพ์สิ่งที่ต้องการค้นหาภาพ เช่น 'ขอรูปรถกระบะ'")
+        return
     imgs = robust_image_search(text)
     if imgs:
         for url in imgs[:3]:
