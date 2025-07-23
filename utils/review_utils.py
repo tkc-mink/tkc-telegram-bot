@@ -1,64 +1,113 @@
+# utils/review_utils.py
+"""
+Utility สำหรับจัดการรีวิว (คะแนน 1-5 ต่อวัน/ต่อผู้ใช้)
+- เก็บข้อมูลในไฟล์ JSON (แบ่งตามวันที่)
+- มีฟังก์ชันเช็กว่าควรถามรีวิววันนี้ไหม (ดูการใช้งานเมื่อวาน + วันนี้ยังไม่รีวิว)
+"""
+
+from __future__ import annotations
 import json
+import os
+import threading
 from datetime import datetime, timedelta
+from typing import Dict, Optional
 
-REVIEW_FILE = "review.json"
-USAGE_FILE = "usage.json"
+# -------------------- CONFIG --------------------
+REVIEW_FILE = os.getenv("REVIEW_FILE", "review.json")
+USAGE_FILE  = os.getenv("USAGE_FILE",  "usage.json")
 
-def load_review():
-    """โหลดข้อมูลรีวิวทั้งหมด (return dict)"""
+# ล็อกสำหรับเขียนไฟล์ให้ปลอดภัยเวลามีหลาย thread
+_FILE_LOCK = threading.Lock()
+
+# -------------------- IO HELPERS ----------------
+def _load_json(path: str) -> Dict:
+    if not os.path.exists(path):
+        return {}
     try:
-        with open(REVIEW_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        print(f"[review_utils] load error ({path}): {e}")
         return {}
 
-def save_review(data):
-    """บันทึกข้อมูลรีวิวทั้งหมด (dict)"""
+def _save_json(data: Dict, path: str) -> None:
     try:
-        with open(REVIEW_FILE, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[review_utils] Save error: {e}")
+        print(f"[review_utils] save error ({path}): {e}")
 
-def set_review(user_id, rating):
+# -------------------- CORE APIS -----------------
+def set_review(user_id: str | int, rating: int) -> None:
     """
-    เซ็ตคะแนนรีวิว (1-5) ให้ user_id ในวันที่วันนี้
+    บันทึกคะแนนรีวิว (1-5) ให้ user_id ในวันที่วันนี้
+    ถ้า rating เกินช่วงจะถูก clamp ให้อยู่ในช่วง 1-5
     """
     user_id = str(user_id)
-    today = datetime.now().strftime("%Y-%m-%d")
-    data = load_review()
-    data.setdefault(today, {})
-    data[today][user_id] = int(rating)
-    save_review(data)
+    rating  = max(1, min(5, int(rating)))
+    today   = _today()
 
-def get_review(date, user_id):
+    with _FILE_LOCK:
+        data = _load_json(REVIEW_FILE)
+        data.setdefault(today, {})
+        data[today][user_id] = rating
+        _save_json(data, REVIEW_FILE)
+
+def get_review(date: str, user_id: str | int) -> Optional[int]:
     """
-    ดึงรีวิว user_id ในวันที่กำหนด (คืน None ถ้าไม่มี)
+    คืนคะแนนรีวิวของ user_id ในวันที่กำหนด (เช่น '2025-07-23')
+    ถ้าไม่มีคืน None
     """
     user_id = str(user_id)
-    data = load_review()
-    return data.get(date, {}).get(user_id, None)
+    data = _load_json(REVIEW_FILE)
+    val = data.get(date, {}).get(user_id)
+    return int(val) if val is not None else None
 
-def has_reviewed_today(user_id):
-    """
-    เช็กว่า user_id ให้รีวิววันนี้แล้วหรือยัง (True/False)
-    """
-    today = datetime.now().strftime("%Y-%m-%d")
-    return get_review(today, user_id) is not None
+def has_reviewed_today(user_id: str | int) -> bool:
+    """True ถ้าผู้ใช้รีวิวแล้วในวันนี้"""
+    return get_review(_today(), user_id) is not None
 
-def need_review_today(user_id):
+def need_review_today(user_id: str | int) -> bool:
     """
-    เช็กว่าต้องให้ user_id รีวิววันนี้ไหม
-    (หาก user ใช้บอทเมื่อวานและวันนี้ยังไม่รีวิว)
+    True ถ้าควรขอให้ user รีวิววันนี้
+    เงื่อนไข: ผู้ใช้ใช้งาน "เมื่อวาน" (มี usage log) และวันนี้ยังไม่รีวิว
     """
-    user_id = str(user_id)
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    user_id   = str(user_id)
+    yesterday = _yesterday()
+
     try:
-        with open(USAGE_FILE, "r", encoding="utf-8") as f:
-            usage = json.load(f)
-        # ถ้า user ใช้บอทเมื่อวาน แต่วันนี้ยังไม่ได้รีวิว
-        if user_id in usage.get(yesterday, {}):
-            return not has_reviewed_today(user_id)
-    except Exception:
-        pass
+        usage = _load_json(USAGE_FILE)
+        used_yesterday = user_id in usage.get(yesterday, {})
+        if used_yesterday and not has_reviewed_today(user_id):
+            return True
+    except Exception as e:
+        print(f"[review_utils] need_review_today error: {e}")
     return False
+
+# -------------------- EXTRA HELPERS (optional) ---
+def get_today_avg() -> float:
+    """คะแนนเฉลี่ยวันนี้ (ถ้าไม่มีรีวิวจะคืน 0.0)"""
+    data = _load_json(REVIEW_FILE)
+    today = _today()
+    todays = data.get(today, {})
+    if not todays:
+        return 0.0
+    return sum(todays.values()) / len(todays)
+
+def get_day_stats(date: str) -> Dict[str, float]:
+    """
+    สถิติของวันใดวันหนึ่ง
+    return: {"count": n, "avg": x.xx}
+    """
+    data = _load_json(REVIEW_FILE)
+    day = data.get(date, {})
+    if not day:
+        return {"count": 0, "avg": 0.0}
+    return {"count": len(day), "avg": sum(day.values()) / len(day)}
+
+# -------------------- INTERNAL DATE HELPERS -----
+def _today() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+def _yesterday() -> str:
+    return (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
