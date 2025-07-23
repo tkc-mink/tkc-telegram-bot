@@ -1,3 +1,6 @@
+# handlers/main_handler.py
+
+import traceback
 from handlers.history import handle_history
 from handlers.review import handle_review
 from handlers.weather import handle_weather
@@ -11,18 +14,20 @@ from handlers.oil import handle_oil
 from utils.message_utils import send_message  # สำหรับ fallback หรือ reply ทั่วไป
 
 def handle_message(data):
+    """
+    ฟังก์ชันรับ event จาก telegram webhook แล้ว dispatch ไป handler ย่อย
+    """
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
-    user_text = msg.get("caption", "") or msg.get("text", "")
-    user_text = str(user_text or "").strip()
+    user_text = (msg.get("caption") or msg.get("text") or "").strip()
     user_text_low = user_text.lower()
 
-    # Safety: ไม่ระบุ chat_id หรือไม่มี text/message เลย (ปล่อยผ่าน)
+    # Safety: ไม่ระบุ chat_id หรือไม่มีข้อความ (ปล่อยผ่าน)
     if not chat_id:
         return
 
     try:
-        # -- คำสั่ง command ต่างๆ --
+        # -- Routing / Command dispatch --
         if user_text_low.startswith("/my_history"):
             handle_history(chat_id, user_text)
         elif user_text_low.startswith("/gold"):
@@ -59,5 +64,6 @@ def handle_message(data):
         else:
             send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่อีกครั้ง หรือพิมพ์ /help")
     except Exception as e:
+        # ส่ง error message กลับผู้ใช้ และ log ข้อผิดพลาดเต็มๆ
         send_message(chat_id, f"❌ ระบบขัดข้อง: {e}")
-        # คุณสามารถเพิ่ม logging ได้ที่นี่ด้วย เช่น print(traceback.format_exc())
+        print("[MAIN_HANDLER ERROR]", traceback.format_exc())
