@@ -2,10 +2,11 @@ import os
 import sys
 import traceback
 from datetime import datetime
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, jsonify
 
-from handlers import handle_message
-from backup_utils import restore_all, setup_backup_scheduler  # <- ใช้งาน backup
+# === Import จากโครงสร้างใหม่ ===
+from handlers.main_handler import handle_message
+from backup_utils import restore_all, setup_backup_scheduler
 
 # === Restore & Schedule backup (one-time) ===
 try:
@@ -32,7 +33,7 @@ def webhook():
         log_event(f"Received webhook: {request.method} {request.path}")
         data = request.get_json(force=True, silent=True)
         if data:
-            log_event(f"Telegram Data: {str(data)[:300]}")
+            log_event(f"Telegram Data: {str(data)[:300]} ...")
             handle_message(data)
         else:
             log_event("⚠️ No data received from Telegram.")
