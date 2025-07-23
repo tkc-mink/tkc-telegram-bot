@@ -1,31 +1,15 @@
-# --- Web Framework ---
 flask==2.3.3
 gunicorn==21.2.0
-
-# --- Telegram API ---
 python-telegram-bot==13.15
-
-# --- OpenAI API (GPT) ---
 openai>=1.25.0,<2.0.0
-
-# --- Web Scraping / API Utils ---
 requests==2.31.0
 beautifulsoup4==4.12.3
 lxml==5.2.1
 langdetect==1.0.9
-
-# --- Office File Processing ---
-PyPDF2==3.0.1         # PDF (ไม่ใช่ OCR)
-python-docx==1.1.2    # DOCX (Word)
-python-pptx==0.6.23   # PPTX (PowerPoint)
-openpyxl==3.1.2       # XLSX (Excel)
-pandas==2.2.2         # Data processing for Excel
-
-# --- Image Handling ---
-Pillow==10.3.0         # (จำเป็นกับ python-pptx และ preview image)
-
-# --- (Optional: Google Drive Backup) ---
-# google-api-python-client==2.122.0
-# google-auth==2.29.0
-# google-auth-httplib2==0.2.0
-# google-auth-oauthlib==1.2.0
+python-pptx==0.6.23
+openpyxl==3.1.2
+PyPDF2==3.0.1
+google-api-python-client==2.131.0
+google-auth==2.29.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
