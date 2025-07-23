@@ -1,12 +1,8 @@
-from telegram import Update
-from telegram.ext import ContextTypes
+# handlers/crypto.py
+from utils.message_utils import send_message
 from serp_utils import get_crypto_price
 
-async def crypto_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if not args:
-        await update.message.reply_text("ตัวอย่าง: /crypto BTC")
-        return
-    symbol = args[0]
-    reply = get_crypto_price(symbol)
-    await update.message.reply_text(reply)
+def handle_crypto(chat_id: int, user_text: str):
+    parts = user_text.split()
+    symbol = parts[1] if len(parts) >= 2 else "BTC"
+    send_message(chat_id, get_crypto_price(symbol))
