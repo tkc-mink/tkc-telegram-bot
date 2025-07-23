@@ -2,7 +2,8 @@ import os
 import json
 import requests
 import tempfile
-from datetime import datetime
+import threading
+from datetime import datetime, time as dtime
 from openai import OpenAI
 from PIL import Image
 from PyPDF2 import PdfReader
@@ -16,6 +17,8 @@ from news_utils        import get_news
 from serp_utils        import get_stock_info, get_oil_price, get_lottery_result, get_crypto_price
 from function_calling  import process_with_function_calling
 
+import backup_utils   # <-- ต้องมี backup_utils.py ตามที่จัดให้ (Google Drive)
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client         = OpenAI(api_key=OPENAI_API_KEY)
@@ -27,6 +30,39 @@ LOCATION_FILE        = "location_logs.json"
 MAX_QUESTION_PER_DAY = 30
 MAX_IMAGE_PER_DAY    = 15
 EXEMPT_USER_IDS      = ["6849909227"]
+
+# --- Restore from Google Drive ทุกครั้งที่รัน ---
+def try_restore_data_from_gdrive():
+    try:
+        print("[INFO] Attempt restore all data from Google Drive...")
+        backup_utils.restore_all()
+        print("[INFO] Restore complete.")
+    except Exception as e:
+        print(f"[ERROR] Restore fail: {e}")
+
+try_restore_data_from_gdrive()
+
+# --- Schedule daily backup (00:09 AM) ---
+def schedule_daily_backup():
+    def backup_job():
+        while True:
+            now = datetime.now()
+            target = now.replace(hour=0, minute=9, second=0, microsecond=0)
+            if now >= target:
+                target = target.replace(day=now.day + 1)  # next day
+                if target.month != now.month:
+                    target = target.replace(month=now.month + 1, day=1)
+            wait_sec = (target - now).total_seconds()
+            if wait_sec <= 0:  # time already passed
+                wait_sec += 86400
+            print(f"[BACKUP] Waiting {wait_sec/60:.1f} minutes until next backup at {target}")
+            threading.Event().wait(wait_sec)
+            print("[BACKUP] Start daily backup to Google Drive...")
+            backup_utils.backup_all()
+            print("[BACKUP] Backup completed.")
+    t = threading.Thread(target=backup_job, daemon=True)
+    t.start()
+schedule_daily_backup()
 
 # --- JSON helpers ---
 def load_json_safe(path):
