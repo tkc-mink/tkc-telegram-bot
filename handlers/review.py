@@ -1,28 +1,23 @@
-from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
+# handlers/review.py
+
 from review_utils import set_review, need_review_today
+from utils.message_utils import send_message
 
-ASK_REVIEW = 1
+def handle_review(chat_id, user_text):
+    """
+    ฟังก์ชันนี้จะถูกเรียกจาก main_handler เมื่อผู้ใช้ส่งข้อความ /review หรือเกี่ยวข้อง
+    - ถ้ายังไม่ได้รีวิว จะขอให้กรอกคะแนน
+    - ถ้ารับข้อความเป็น 1-5 จะบันทึกและขอบคุณ
+    """
+    user_id = str(chat_id)
+    txt = user_text.strip()
 
-async def ask_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    # ถ้าเป็นการขอรีวิว
     if need_review_today(user_id):
-        await update.message.reply_text("❓ กรุณารีวิวความพึงพอใจการใช้บอทวันนี้ (1-5):")
-        return ASK_REVIEW
+        if txt in ["1", "2", "3", "4", "5"]:
+            set_review(user_id, int(txt))
+            send_message(chat_id, "✅ ขอบคุณสำหรับรีวิวครับ!")
+        else:
+            send_message(chat_id, "❓ กรุณารีวิวความพึงพอใจการใช้บอทวันนี้ (1-5):")
     else:
-        await update.message.reply_text("วันนี้ไม่จำเป็นต้องรีวิวครับ")
-        return ConversationHandler.END
-
-async def receive_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    rating = update.message.text.strip()
-    if rating not in ["1", "2", "3", "4", "5"]:
-        await update.message.reply_text("กรุณาตอบเป็นตัวเลข 1-5 เท่านั้นครับ")
-        return ASK_REVIEW
-    set_review(user_id, int(rating))
-    await update.message.reply_text("✅ ขอบคุณสำหรับรีวิวครับ!")
-    return ConversationHandler.END
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("ยกเลิกการรีวิว")
-    return ConversationHandler.END
+        send_message(chat_id, "วันนี้ไม่จำเป็นต้องรีวิวครับ")
