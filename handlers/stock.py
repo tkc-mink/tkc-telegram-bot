@@ -1,13 +1,8 @@
 # handlers/stock.py
+from utils.serp_utils import get_stock_info
 from utils.message_utils import send_message
-from serp_utils import get_stock_info
 
-def handle_stock(chat_id: int, user_text: str):
-    # ตัวอย่าง: /stock AAPL
+def handle_stock(chat_id, user_text):
     parts = user_text.split()
-    if len(parts) >= 2:
-        symbol = parts[1]
-    else:
-        send_message(chat_id, "พิมพ์ /stock <symbol> เช่น /stock AAPL")
-        return
+    symbol = parts[1] if len(parts) > 1 else "AAPL"
     send_message(chat_id, get_stock_info(symbol))
