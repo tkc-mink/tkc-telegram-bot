@@ -4,20 +4,20 @@ import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
 
-# === Import จากโครงสร้างใหม่ ===
 from handlers.main_handler import handle_message
 from backup_utils import restore_all, setup_backup_scheduler
+from settings import SUPPORTED_FORMATS  # <= NEW! ดึงค่าจาก settings.py (ถ้ามี)
+
+app = Flask(__name__)
 
 # === Restore & Schedule backup (one-time) ===
 try:
     print("[INIT] Attempting restore all data from Google Drive...")
-    restore_all()  # ดึงข้อมูลสำคัญจาก Google Drive (ถ้ามีไฟล์)
-    setup_backup_scheduler()  # ตั้ง scheduler backup อัตโนมัติทุกวัน
+    restore_all()
+    setup_backup_scheduler()
     print("[INIT] Auto restore + backup scheduler started")
 except Exception as e:
     print(f"[INIT ERROR] {e}\n{traceback.format_exc()}")
-
-app = Flask(__name__)
 
 def log_event(msg):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -48,7 +48,8 @@ def healthz():
 
 @app.route('/docs', methods=['GET'])
 def docs():
-    return jsonify({"supported_formats": [".pdf", ".docx", ".txt", ".xlsx", ".pptx", ".jpg", ".png"]})
+    # ปรับใช้ config หรือ settings ได้
+    return jsonify({"supported_formats": SUPPORTED_FORMATS})
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
