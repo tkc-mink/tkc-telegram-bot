@@ -5,11 +5,8 @@ from history_utils import log_message, get_user_history
 async def favorite_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not context.args:
-        await update.message.reply_text(
-            "❗️ พิมพ์คำถามที่คุณอยากบันทึกต่อจากคำสั่ง เช่น:\n/favorite_add วิธีตั้งศูนย์ล้อ"
-        )
+        await update.message.reply_text("❗️ พิมพ์คำถามที่คุณอยากบันทึกต่อจากคำสั่ง เช่น:\n/favorite_add วิธีตั้งศูนย์ล้อ")
         return
-
     message = " ".join(context.args)
     log_message(user_id, message, type="favorite")
     await update.message.reply_text("⭐️ บันทึกคำถามโปรดของคุณเรียบร้อยแล้วครับ")
