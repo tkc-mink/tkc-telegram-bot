@@ -1,7 +1,6 @@
-from telegram import Update
-from telegram.ext import ContextTypes
+# handlers/oil.py
+from utils.message_utils import send_message
 from serp_utils import get_oil_price
 
-async def oil_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply = get_oil_price()
-    await update.message.reply_text(reply)
+def handle_oil(chat_id: int, user_text: str):
+    send_message(chat_id, get_oil_price())
