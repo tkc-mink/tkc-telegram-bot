@@ -1,14 +1,18 @@
-# utils/message_utils.py
-
 import os
 import requests
 
 def get_telegram_token():
+    """
+    คืนค่า Telegram Bot Token จาก environment variable
+    """
     return os.getenv("TELEGRAM_TOKEN")
 
 def send_message(chat_id, text, parse_mode=None):
     """
-    ส่งข้อความไปที่ Telegram Chat (รองรับ Markdown/HTML)
+    ส่งข้อความไปที่ Telegram Chat
+    - chat_id: รหัสแชท (int หรือ str)
+    - text: ข้อความ (string)
+    - parse_mode: "HTML", "Markdown" (หรือ None)
     """
     try:
         payload = {
@@ -28,6 +32,9 @@ def send_message(chat_id, text, parse_mode=None):
 def send_photo(chat_id, photo_url, caption=None):
     """
     ส่งรูปภาพไปที่ Telegram Chat
+    - chat_id: รหัสแชท
+    - photo_url: URL ของรูป
+    - caption: ข้อความใต้รูป (string หรือ None)
     """
     payload = {"chat_id": chat_id, "photo": photo_url}
     if caption:
@@ -43,7 +50,7 @@ def send_photo(chat_id, photo_url, caption=None):
 
 def ask_for_location(chat_id, text="📍 กรุณาแชร์ตำแหน่งของคุณ"):
     """
-    ขอให้ผู้ใช้แชร์ location (โชว์ปุ่ม Telegram)
+    ส่งปุ่มขอ Location ไปให้ผู้ใช้กดแชร์ location ผ่าน Telegram
     """
     keyboard = {
         "keyboard": [
