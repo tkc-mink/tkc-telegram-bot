@@ -48,18 +48,21 @@ def schedule_daily_backup():
         while True:
             now = datetime.now()
             target = now.replace(hour=0, minute=9, second=0, microsecond=0)
+            # หากเลยเวลาแล้วให้เลื่อนเป็นวันถัดไป
             if now >= target:
-                target = target.replace(day=now.day + 1)  # next day
-                if target.month != now.month:
-                    target = target.replace(month=now.month + 1, day=1)
+                from datetime import timedelta
+                target = target + timedelta(days=1)
             wait_sec = (target - now).total_seconds()
-            if wait_sec <= 0:  # time already passed
+            if wait_sec <= 0:
                 wait_sec += 86400
             print(f"[BACKUP] Waiting {wait_sec/60:.1f} minutes until next backup at {target}")
             threading.Event().wait(wait_sec)
             print("[BACKUP] Start daily backup to Google Drive...")
-            backup_utils.backup_all()
-            print("[BACKUP] Backup completed.")
+            try:
+                backup_utils.backup_all()
+                print("[BACKUP] Backup completed.")
+            except Exception as e:
+                print(f"[BACKUP ERROR] {e}")
     t = threading.Thread(target=backup_job, daemon=True)
     t.start()
 schedule_daily_backup()
