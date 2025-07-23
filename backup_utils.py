@@ -1,6 +1,5 @@
 import os
 import io
-import time
 import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -9,16 +8,16 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 CREDENTIALS_FILE = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'avian-silo-466800-g2-9f6c4fb7500c.json')
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
-# กำหนดรายชื่อไฟล์ที่ต้องสำรอง/คืนค่า
+# รายชื่อไฟล์ที่ต้องสำรอง/คืนค่า (ข้อมูลเท่านั้น)
 BACKUP_FILES = [
     "usage.json",
     "image_usage.json",
     "context_history.json",
     "location_logs.json"
-    # เพิ่มไฟล์อื่นๆที่ต้องการ backup/restore ได้
+    # เพิ่มได้ตามต้องการ
 ]
 
-GDRIVE_BACKUP_FOLDER_ID = None  # ถ้ามีโฟลเดอร์แยก ให้ใส่ folder id (ไม่มีก็ปล่อย None)
+GDRIVE_BACKUP_FOLDER_ID = None  # ใส่ folder id หากต้องการ backup ไว้ในโฟลเดอร์บน Google Drive
 
 def get_drive_service():
     creds = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
@@ -36,7 +35,6 @@ def delete_all_by_name(file_name):
             print(f"Cannot delete file: {f['id']} - {e}")
 
 def upload_to_gdrive(file_path, gdrive_folder_id=None):
-    # ลบไฟล์ชื่อเดียวกันบน Google Drive ก่อน
     delete_all_by_name(os.path.basename(file_path))
     service = get_drive_service()
     file_metadata = {'name': os.path.basename(file_path)}
@@ -66,7 +64,6 @@ def download_from_gdrive(file_name, destination):
     while not done:
         status, done = downloader.next_chunk()
     fh.close()
-    # (Optional) ตรวจสอบไฟล์หลัง restore
     if os.path.exists(destination) and os.path.getsize(destination) > 0:
         return True
     else:
@@ -74,7 +71,6 @@ def download_from_gdrive(file_name, destination):
         return False
 
 def backup_all():
-    """Backup ไฟล์ทั้งหมดขึ้น Google Drive"""
     results = {}
     for file_path in BACKUP_FILES:
         try:
@@ -89,10 +85,31 @@ def backup_all():
     return results
 
 def restore_all():
-    """Restore ไฟล์ทั้งหมดจาก Google Drive"""
     for file_path in BACKUP_FILES:
         try:
             ok = download_from_gdrive(os.path.basename(file_path), file_path)
             print(f"[RESTORE] {file_path}: {'OK' if ok else 'Not found'}")
         except Exception as e:
             print(f"[RESTORE ERROR] {file_path}: {e}")
+
+# --- (Optional) ใช้ APScheduler สำหรับ backup อัตโนมัติทุกวัน ---
+def setup_backup_scheduler():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    import pytz
+    from datetime import datetime, time as dtime
+
+    def backup_job():
+        print("[SCHEDULED BACKUP] Starting backup job...")
+        backup_all()
+
+    scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Bangkok'))
+    # ตั้งเวลา 00:09 ทุกวัน
+    scheduler.add_job(backup_job, 'cron', hour=0, minute=9)
+    scheduler.start()
+    print("[SCHEDULED BACKUP] Backup scheduler started")
+
+# (ใน main.py)
+if __name__ == "__main__":
+    restore_all()          # Restore ทุกครั้งที่เริ่มระบบ
+    setup_backup_scheduler()  # เปิด backup อัตโนมัติ
+    # ...start bot/app ตามปกติ...
