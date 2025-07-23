@@ -1,0 +1,16 @@
+from telegram import Update
+from telegram.ext import ContextTypes
+from search_utils import robust_image_search
+from history_utils import log_message
+
+async def image_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    text = update.message.text
+    imgs = robust_image_search(text)
+    if imgs:
+        for url in imgs[:3]:
+            await update.message.reply_photo(url, caption=f"ผลลัพธ์: {text}")
+    else:
+        await update.message.reply_text(f"ไม่พบภาพสำหรับ '{text}'")
+    log_message(user_id, text, "ส่งรูปภาพ (ดูในแชท)")
