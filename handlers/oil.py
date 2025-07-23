@@ -1,6 +1,6 @@
 # handlers/oil.py
+from utils.serp_utils import get_oil_price
 from utils.message_utils import send_message
-from serp_utils import get_oil_price
 
-def handle_oil(chat_id: int, user_text: str):
+def handle_oil(chat_id, user_text):
     send_message(chat_id, get_oil_price())
