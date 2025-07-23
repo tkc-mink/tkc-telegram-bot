@@ -1,49 +1,51 @@
 # handlers/main_handler.py
 
-from handlers.history import *
-from handlers.review import *
-from handlers.weather import *
-from handlers.doc import *
-from handlers.image import *
-from handlers.gold import *
-from handlers.lottery import *
-from handlers.stock import *
-from handlers.crypto import *
-from handlers.oil import *
-# ... import อื่นๆ ที่จำเป็น
+from handlers.history import handle_history
+from handlers.review import handle_review
+from handlers.weather import handle_weather
+from handlers.doc import handle_doc
+from handlers.image import handle_image
+from handlers.gold import handle_gold
+from handlers.lottery import handle_lottery
+from handlers.stock import handle_stock
+from handlers.crypto import handle_crypto
+from handlers.oil import handle_oil
+# ... import handler อื่นๆ
+
+from utils.message_utils import send_message  # สำหรับ fallback หรือ reply ทั่วไป
 
 def handle_message(data):
-    """
-    ฟังก์ชันนี้จะรับ data จาก webhook (dict) แล้วตัดสินใจว่า
-    จะโยนงานต่อไปที่ handler ไหน เช่น ตรวจสอบ command หรือประเภท message
-    """
     msg = data.get("message", {})
     chat_id = msg.get("chat", {}).get("id")
     user_text = msg.get("caption", "") or msg.get("text", "")
 
-    # (ตัวอย่าง dispatch ฟีเจอร์)
-    if user_text.startswith("/my_history"):
-        # เรียกฟังก์ชันจาก history handler
-        my_history(chat_id, user_text)
-    elif user_text.startswith("/gold"):
-        gold_price(chat_id, user_text)
-    elif user_text.startswith("/lottery"):
-        lottery_result(chat_id, user_text)
-    elif user_text.startswith("/stock"):
-        stock_price(chat_id, user_text)
-    elif user_text.startswith("/crypto"):
-        crypto_price(chat_id, user_text)
-    elif user_text.startswith("/oil"):
-        oil_price(chat_id, user_text)
-    elif user_text.startswith("/weather"):
-        weather(chat_id, user_text)
-    elif "ขอรูป" in user_text:
-        image_search(chat_id, user_text)
-    # ... เพิ่มตามฟีเจอร์ของคุณ
+    if not chat_id or not user_text:
+        return
 
+    user_text_low = user_text.lower()
+
+    # ตัวอย่าง dispatch ที่รองรับทั้ง /command และ keyword ภาษาไทย
+    if user_text_low.startswith("/my_history"):
+        handle_history(chat_id, user_text)
+    elif user_text_low.startswith("/gold"):
+        handle_gold(chat_id, user_text)
+    elif user_text_low.startswith("/lottery"):
+        handle_lottery(chat_id, user_text)
+    elif user_text_low.startswith("/stock"):
+        handle_stock(chat_id, user_text)
+    elif user_text_low.startswith("/crypto"):
+        handle_crypto(chat_id, user_text)
+    elif user_text_low.startswith("/oil"):
+        handle_oil(chat_id, user_text)
+    elif user_text_low.startswith("/weather") or "อากาศ" in user_text_low:
+        handle_weather(chat_id, user_text)
+    elif "ขอรูป" in user_text_low or "/image" in user_text_low:
+        handle_image(chat_id, user_text)
+    elif user_text_low.startswith("/review"):
+        handle_review(chat_id, user_text)
+    elif user_text_low.startswith("/doc") or msg.get("document"):
+        handle_doc(chat_id, msg)
     else:
-        # default กรณีไม่ตรงเงื่อนไข
-        pass  # หรือจะ reply ข้อความ default กลับไป
+        # fallback message: ตอบกลับถ้าไม่เข้าเงื่อนไขใดเลย
+        send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่อีกครั้งหรือพิมพ์ /help")
 
-# หมายเหตุ: แต่ละฟังก์ชัน handler (เช่น gold_price, weather ฯลฯ) ต้องออกแบบให้รับ (chat_id, user_text)
-# หรือถ้า handler เดิมของคุณออกแบบให้รับ telegram Update/context, สามารถ map/แปลงเองได้ (ตาม code base)
