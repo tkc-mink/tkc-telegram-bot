@@ -1,35 +1,21 @@
 # handlers/image.py
-
-from telegram import Update
-from telegram.ext import ContextTypes
+from utils.message_utils import send_message, send_photo
+from utils.usage_utils import check_and_increase_usage, IMAGE_USAGE_FILE, MAX_IMAGE_PER_DAY, EXEMPT_USER_IDS
 from search_utils import robust_image_search
-from history_utils import log_message
+from history_utils import log_message  # อยู่ใน utils.history_utils? ปรับ path ให้ตรง
 
-async def image_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    ฟีเจอร์ค้นหารูปภาพจาก keyword (รองรับ: ขอรูป/ขอภาพ/image/photo)
-    """
-    user_id = update.effective_user.id
-    text = update.message.text
-    if not text or not any(k in text.lower() for k in ["ขอรูป", "ขอภาพ", "image", "photo"]):
-        await update.message.reply_text("🖼️ กรุณาพิมพ์สิ่งที่ต้องการค้นหาภาพ เช่น 'ขอรูปรถกระบะ', 'ขอภาพแมว'")
-        return
+def handle_image(chat_id: int, user_text: str):
+    user_id = str(chat_id)
+    if user_id not in EXEMPT_USER_IDS:
+        if not check_and_increase_usage(user_id, IMAGE_USAGE_FILE, MAX_IMAGE_PER_DAY):
+            send_message(chat_id, f"❌ ครบ {MAX_IMAGE_PER_DAY} รูปวันนี้แล้ว")
+            return
 
-    # แยก keyword ที่ต้องการค้นหาจริงๆ (เช่น "ขอรูปรถกระบะ" → "รถกระบะ")
-    keyword = (
-        text.replace("ขอรูป", "")
-            .replace("ขอภาพ", "")
-            .replace("image", "")
-            .replace("photo", "")
-            .strip()
-    )
-    if not keyword:
-        keyword = text  # fallback ถ้าตัดแล้วว่าง
-
-    imgs = robust_image_search(keyword)
+    kw = user_text
+    imgs = robust_image_search(kw)
     if imgs:
-        for url in imgs[:3]:  # ส่งได้สูงสุด 3 รูป
-            await update.message.reply_photo(url, caption=f"ผลลัพธ์: {keyword}")
+        for url in imgs[:3]:
+            send_photo(chat_id, url, caption=f"ผลลัพธ์: {kw}")
+        log_message(user_id, kw, "ส่งรูปภาพ (ดูในแชท)")
     else:
-        await update.message.reply_text(f"ไม่พบภาพสำหรับ '{keyword}'")
-    log_message(user_id, text, f"ค้นหารูปภาพ: {keyword}")
+        send_message(chat_id, f"ไม่พบภาพสำหรับ '{kw}'")
