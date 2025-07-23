@@ -9,7 +9,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 CREDENTIALS_FILE = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'avian-silo-466800-g2-9f6c4fb7500c.json')
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
-# ปรับชื่อไฟล์สำรอง/คืนค่าตามชื่อจริง
+# กำหนดรายชื่อไฟล์ที่ต้องสำรอง/คืนค่า
 BACKUP_FILES = [
     "usage.json",
     "image_usage.json",
@@ -18,13 +18,26 @@ BACKUP_FILES = [
     # เพิ่มไฟล์อื่นๆที่ต้องการ backup/restore ได้
 ]
 
-GDRIVE_BACKUP_FOLDER_ID = None  # ถ้ามี folder บนไดรฟ์ให้ใส่ id (ไม่มีก็ไม่ต้อง)
+GDRIVE_BACKUP_FOLDER_ID = None  # ถ้ามีโฟลเดอร์แยก ให้ใส่ folder id (ไม่มีก็ปล่อย None)
 
 def get_drive_service():
     creds = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
     return build('drive', 'v3', credentials=creds)
 
+def delete_all_by_name(file_name):
+    service = get_drive_service()
+    query = f"name='{file_name}'"
+    results = service.files().list(q=query, fields="files(id, name)", pageSize=100).execute()
+    files = results.get('files', [])
+    for f in files:
+        try:
+            service.files().delete(fileId=f['id']).execute()
+        except Exception as e:
+            print(f"Cannot delete file: {f['id']} - {e}")
+
 def upload_to_gdrive(file_path, gdrive_folder_id=None):
+    # ลบไฟล์ชื่อเดียวกันบน Google Drive ก่อน
+    delete_all_by_name(os.path.basename(file_path))
     service = get_drive_service()
     file_metadata = {'name': os.path.basename(file_path)}
     if gdrive_folder_id:
@@ -53,22 +66,33 @@ def download_from_gdrive(file_name, destination):
     while not done:
         status, done = downloader.next_chunk()
     fh.close()
-    return True
+    # (Optional) ตรวจสอบไฟล์หลัง restore
+    if os.path.exists(destination) and os.path.getsize(destination) > 0:
+        return True
+    else:
+        print(f"[restore] Downloaded but file is empty: {destination}")
+        return False
 
 def backup_all():
     """Backup ไฟล์ทั้งหมดขึ้น Google Drive"""
     results = {}
     for file_path in BACKUP_FILES:
-        if os.path.exists(file_path):
-            file_id = upload_to_gdrive(file_path, GDRIVE_BACKUP_FOLDER_ID)
-            results[file_path] = file_id
-        else:
-            results[file_path] = None
+        try:
+            if os.path.exists(file_path):
+                file_id = upload_to_gdrive(file_path, GDRIVE_BACKUP_FOLDER_ID)
+                results[file_path] = file_id
+            else:
+                results[file_path] = None
+        except Exception as e:
+            results[file_path] = f"error: {e}"
     print("[BACKUP RESULT]", results)
     return results
 
 def restore_all():
     """Restore ไฟล์ทั้งหมดจาก Google Drive"""
     for file_path in BACKUP_FILES:
-        ok = download_from_gdrive(os.path.basename(file_path), file_path)
-        print(f"[RESTORE] {file_path}: {'OK' if ok else 'Not found'}")
+        try:
+            ok = download_from_gdrive(os.path.basename(file_path), file_path)
+            print(f"[RESTORE] {file_path}: {'OK' if ok else 'Not found'}")
+        except Exception as e:
+            print(f"[RESTORE ERROR] {file_path}: {e}")
