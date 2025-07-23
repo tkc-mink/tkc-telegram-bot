@@ -1,12 +1,13 @@
-from telegram import Update
-from telegram.ext import ContextTypes
+# handlers/stock.py
+from utils.message_utils import send_message
 from serp_utils import get_stock_info
 
-async def stock_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if not args:
-        await update.message.reply_text("ตัวอย่าง: /stock PTT")
+def handle_stock(chat_id: int, user_text: str):
+    # ตัวอย่าง: /stock AAPL
+    parts = user_text.split()
+    if len(parts) >= 2:
+        symbol = parts[1]
+    else:
+        send_message(chat_id, "พิมพ์ /stock <symbol> เช่น /stock AAPL")
         return
-    symbol = args[0]
-    reply = get_stock_info(symbol)
-    await update.message.reply_text(reply)
+    send_message(chat_id, get_stock_info(symbol))
