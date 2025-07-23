@@ -1,7 +1,7 @@
 # handlers/weather.py
 from utils.weather_utils import get_weather_forecast
-from utils.context_utils import get_user_location, ask_for_location
-from utils.message_utils import send_message
+from utils.context_utils import get_user_location
+from utils.message_utils import ask_for_location, send_message   # <— ใช้จาก message_utils
 
 def handle_weather(chat_id, user_text):
     user_id = str(chat_id)
