@@ -1,3 +1,4 @@
+# main.py
 import os
 import sys
 import traceback
@@ -10,7 +11,9 @@ from settings import SUPPORTED_FORMATS
 
 app = Flask(__name__)
 
-# === Restore & Schedule backup (one-time) ===
+# ======================
+# Init: Restore & Schedule Backup
+# ======================
 try:
     print("[INIT] Attempting restore all data from Google Drive...")
     restore_all()
