@@ -17,7 +17,7 @@ from handlers.lottery  import handle_lottery
 from handlers.stock    import handle_stock
 from handlers.crypto   import handle_crypto
 from handlers.oil      import handle_oil
-# from handlers.news     import handle_news # (ถ้ายังไม่มีไฟล์ อย่า import)
+from handlers.search   import handle_google_search, handle_google_image  # เพิ่ม!
 
 # ========= Utils =========
 from utils.message_utils import send_message, ask_for_location
@@ -54,7 +54,7 @@ def handle_message(data: Dict[str, Any]) -> None:
             send_message(chat_id, "⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help")
             return
 
-        # 4) Dispatch ตามคำสั่ง/คีย์เวิร์ด
+        # 4) Dispatch ตามคำสั่ง/คีย์เวิร์ด (ฟีเจอร์หลัก)
         if user_text_low.startswith("/my_history"):
             handle_history(chat_id, user_text)
 
@@ -76,8 +76,11 @@ def handle_message(data: Dict[str, Any]) -> None:
         elif user_text_low.startswith("/weather") or "อากาศ" in user_text_low:
             handle_weather(chat_id, user_text)
 
-        elif "ขอรูป" in user_text_low or user_text_low.startswith("/image"):
-            handle_image(chat_id, user_text)
+        elif user_text_low.startswith("/search") or user_text_low.startswith("ค้นหา"):
+            handle_google_search(chat_id, user_text)
+
+        elif user_text_low.startswith("/image") or "ขอรูป" in user_text_low or user_text_low.startswith("หารูป"):
+            handle_google_image(chat_id, user_text)
 
         elif user_text_low.startswith("/review"):
             handle_review(chat_id, user_text)
@@ -128,8 +131,10 @@ def _send_help(chat_id: int) -> None:
         "• /crypto <SYM>  ราคา Crypto เช่น /crypto BTC\n"
         "• /oil           ราคาน้ำมันโลก\n"
         "• /weather       สภาพอากาศ (ต้องแชร์ location ก่อนด้วยปุ่ม 📍)\n"
+        "• /search        ค้นเว็บ Google เช่น /search รถไฟฟ้า\n"
+        "• /image         ค้นหารูป Google เช่น /image รถยนต์ไฟฟ้า\n"
         "• /review        ให้คะแนนบอท (1-5)\n"
         "• ส่งเอกสาร PDF/Word/Excel/PPT/TXT เพื่อให้บอทช่วยสรุป\n"
-        "• พิมพ์ 'ขอรูป ...' เพื่อให้บอทค้นหารูปภาพให้\n"
+        "• พิมพ์ 'ขอรูป ...' หรือ 'หารูป ...' เพื่อค้นหารูปภาพให้\n"
         "\nพิมพ์ /help ได้ตลอดเพื่อดูคำสั่ง"
     )
