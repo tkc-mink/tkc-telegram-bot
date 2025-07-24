@@ -3,7 +3,6 @@
 """
 Dispatch ข้อความ/อีเวนต์จาก Telegram (ผ่าน Flask webhook) ไปยัง handler ย่อยแต่ละฟีเจอร์
 """
-
 from __future__ import annotations
 from typing import Dict, Any
 import traceback
@@ -19,27 +18,19 @@ from handlers.lottery  import handle_lottery
 from handlers.stock    import handle_stock
 from handlers.crypto   import handle_crypto
 from handlers.oil      import handle_oil
-# ถ้ามีข่าวให้เพิ่ม
-# from handlers.news     import handle_news
+# from handlers.news     import handle_news # (ถ้ายังไม่มีไฟล์ อย่า import)
 
 # ========= Utils =========
 from utils.message_utils import send_message, ask_for_location
 from utils.context_utils import update_location   # ใช้เมื่อผู้ใช้ส่ง location
 
-# ---------------------------------------------------------------------------
-
 def handle_message(data: Dict[str, Any]) -> None:
-    """
-    จุดเริ่มต้นที่ main.py เรียกเมื่อได้รับ webhook
-    :param data: raw dict ที่ Telegram ส่งมา
-    """
     chat_id = None
     try:
         msg: Dict[str, Any] = data.get("message", {}) or {}
         chat = msg.get("chat") or {}
         chat_id = chat.get("id")
         if chat_id is None:
-            # ไม่ใช่ข้อความปกติ (เช่น callback/edited_message) ก็ข้ามไป
             return
 
         # ---- แยกข้อมูลพื้นฐาน ----
@@ -97,7 +88,11 @@ def handle_message(data: Dict[str, Any]) -> None:
 
         else:
             # ไม่เข้าใจคำสั่ง
-            send_message(chat_id, "❓ ไม่เข้าใจคำสั่ง ลองใหม่ หรือพิมพ์ /help")
+            send_message(
+                chat_id,
+                "❓ ไม่เข้าใจคำสั่ง ลองใหม่ หรือพิมพ์ /help\n\n"
+                "ถ้ามีปัญหาสอบถามทีมดูแลระบบ"
+            )
 
     except Exception as e:
         # ส่ง error ให้ผู้ใช้ (ถ้า chat_id ยังมี) และ log stacktrace
@@ -114,7 +109,6 @@ def handle_message(data: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
-    """บันทึกตำแหน่งที่ผู้ใช้แชร์มา แล้วตอบกลับ"""
     loc = msg.get("location", {})
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is not None and lon is not None:
@@ -124,7 +118,6 @@ def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
         send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
 
 def _send_help(chat_id: int) -> None:
-    """ข้อความเมนูช่วยเหลือ"""
     send_message(
         chat_id,
         "ยินดีต้อนรับสู่ TKC Bot 🦊\n\n"
@@ -139,4 +132,5 @@ def _send_help(chat_id: int) -> None:
         "• /review        ให้คะแนนบอท (1-5)\n"
         "• ส่งเอกสาร PDF/Word/Excel/PPT/TXT เพื่อให้บอทช่วยสรุป\n"
         "• พิมพ์ 'ขอรูป ...' เพื่อให้บอทค้นหารูปภาพให้\n"
+        "\nพิมพ์ /help ได้ตลอดเพื่อดูคำสั่ง"
     )
