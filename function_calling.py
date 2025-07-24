@@ -4,13 +4,21 @@ import os
 import json
 from openai import OpenAI
 
-from weather_utils import get_weather_forecast
-from gold_utils    import get_gold_price
-from news_utils    import get_news
-from serp_utils    import get_stock_info, get_oil_price, get_lottery_result, get_crypto_price
+# เปลี่ยนเป็น import จากโฟลเดอร์ utils
+from utils.weather_utils import get_weather_forecast
+from utils.gold_utils    import get_gold_price
+from utils.news_utils    import get_news
+from utils.serp_utils    import (
+    get_stock_info,
+    get_oil_price,
+    get_lottery_result,
+    get_crypto_price,
+)
 
+# สร้าง client ด้วย API key จาก ENV
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# กำหนด metadata ของฟังก์ชันที่ GPT จะเรียกใช้
 FUNCTIONS = [
     {
         "name": "get_weather_forecast",
@@ -33,7 +41,9 @@ FUNCTIONS = [
         "description": "ดูข่าวหรือสรุปข่าววันนี้/ข่าวล่าสุด",
         "parameters": {
             "type": "object",
-            "properties": {"topic": {"type": "string", "description": "หัวข้อข่าว"}},
+            "properties": {
+                "topic": {"type": "string", "description": "หัวข้อข่าว"}
+            },
             "required": ["topic"]
         }
     },
@@ -42,7 +52,9 @@ FUNCTIONS = [
         "description": "ดูข้อมูลหุ้นวันนี้หรือหุ้นล่าสุดในไทย",
         "parameters": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "ชื่อหุ้น หรือ SET"}},
+            "properties": {
+                "query": {"type": "string", "description": "ชื่อหุ้น หรือ SET"}
+            },
             "required": ["query"]
         }
     },
@@ -61,12 +73,15 @@ FUNCTIONS = [
         "description": "ดูราคา bitcoin หรือเหรียญคริปโต",
         "parameters": {
             "type": "object",
-            "properties": {"coin": {"type": "string", "description": "ชื่อเหรียญ"}},
+            "properties": {
+                "coin": {"type": "string", "description": "ชื่อเหรียญ"}
+            },
             "required": ["coin"]
         }
     },
 ]
 
+# ข้อความ system prompt
 SYSTEM_PROMPT = (
     "คุณคือผู้ช่วย AI ภาษาไทยขององค์กรกลุ่มตระกูลชัย "
     "ตอบคำถามทั่วไปอย่างสุภาพ จริงใจ และเป็นประโยชน์ "
@@ -106,21 +121,22 @@ def _normalize_context(ctx):
             norm.append(item)
         elif isinstance(item, str):
             norm.append({"role": "user", "content": item})
-    return norm[-5:]  # limit context
+    # เก็บเฉพาะ context 5 ข้อความล่าสุด
+    return norm[-5:]
 
 def process_with_function_calling(user_message: str, ctx=None, debug=False) -> str:
     """
     Function calling + multi-turn context-aware, fallback GPT answer.
     """
     try:
-        # 1. Prepare conversation context
+        # 1. เตรียม conversation context
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if ctx:
             norm_ctx = _normalize_context(ctx)
             messages.extend(norm_ctx)
         messages.append({"role": "user", "content": user_message})
 
-        # 2. First GPT call
+        # 2. เรียก GPT ครั้งแรก ให้เลือกเรียก function อัตโนมัติ
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -129,11 +145,13 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
         )
         msg = response.choices[0].message
 
-        # 3. If GPT calls function, dispatch and summarize
+        # 3. ถ้า GPT สั่งเรียก function ให้ dispatch แล้วเรียก GPT รอบสองสรุปผล
         if msg.function_call:
             fname = msg.function_call.name
             args = json.loads(msg.function_call.arguments or "{}")
             result = function_dispatch(fname, args)
+
+            # เพิ่มข้อความที่ bot เรียก function
             messages.append({
                 "role": "assistant",
                 "function_call": {
@@ -141,11 +159,14 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
                     "arguments": json.dumps(args, ensure_ascii=False)
                 }
             })
+            # เพิ่มข้อความที่ function ตอบกลับ
             messages.append({
                 "role": "function",
                 "name": fname,
                 "content": result
             })
+
+            # เรียก GPT อีกครั้งโดยไม่ต้องเรียก function แล้ว
             response2 = client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
@@ -160,8 +181,10 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
                 print(msg2.content)
             return msg2.content.strip() if msg2.content else result
 
-        # 4. Otherwise, just reply
+        # 4. มิฉะนั้น ให้ตอบกลับปกติ
         return msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
+
     except Exception as e:
+        # กรณี error
         print(f"[function_calling] {e}")
         return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
