@@ -58,7 +58,7 @@ def handle_message(data: Dict[str, Any]) -> None:
         if user_text_low.startswith("/my_history"):
             handle_history(chat_id, user_text)
 
-        elif user_text_low.startswith("/gold"):
+        elif user_text_low.startswith("/gold") or "ราคาทอง" in user_text_low:
             handle_gold(chat_id, user_text)
 
         elif user_text_low.startswith("/lottery"):
