@@ -1,4 +1,4 @@
-# utils/serp_utils.py
+# src/utils/serp_utils.py
 
 def get_stock_info(query):
     # สมมุติข้อมูล
