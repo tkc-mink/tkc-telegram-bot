@@ -1,5 +1,3 @@
-# handlers/gold.py
-
 from utils.gold_utils import get_gold_price
 from utils.message_utils import send_message
 
