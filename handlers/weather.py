@@ -1,8 +1,6 @@
-# handlers/weather.py
-
 from utils.message_utils import send_message, ask_for_location
 from utils.context_utils import get_user_location
-from weather_utils import get_weather_forecast
+from utils.weather_utils import get_weather_forecast  # <-- สำคัญ
 
 def handle_weather(chat_id: int, user_text: str):
     """
