@@ -1,4 +1,4 @@
-# serp_utils.py
+# utils/serp_utils.py
 
 def get_stock_info(query):
     # สมมุติข้อมูล
@@ -10,10 +10,18 @@ def get_stock_info(query):
         return "❌ ยังไม่รองรับหุ้นนี้"
 
 def get_oil_price():
-    return "ราคาน้ำมันวันนี้:\n- ดีเซล: 30.94\n- แก๊สโซฮอล์ 95: 37.50\n- E20: 36.34 บาท"
+    return (
+        "ราคาน้ำมันวันนี้:\n"
+        "- ดีเซล: 30.94\n"
+        "- แก๊สโซฮอล์ 95: 37.50\n"
+        "- E20: 36.34 บาท"
+    )
 
 def get_lottery_result():
-    return "ผลสลากกินแบ่งฯ ล่าสุด: 123456 (รางวัลที่ 1)\nเลขท้าย 2 ตัว: 78"
+    return (
+        "ผลสลากกินแบ่งฯ ล่าสุด: 123456 (รางวัลที่ 1)\n"
+        "เลขท้าย 2 ตัว: 78"
+    )
 
 def get_crypto_price(coin):
     coin = coin.lower()
