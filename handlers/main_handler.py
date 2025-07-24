@@ -3,7 +3,6 @@
 """
 Dispatch ข้อความ/อีเวนต์จาก Telegram (ผ่าน Flask webhook) ไปยัง handler ย่อยแต่ละฟีเจอร์
 """
-from __future__ import annotations
 from typing import Dict, Any
 import traceback
 
@@ -23,6 +22,9 @@ from handlers.oil      import handle_oil
 # ========= Utils =========
 from utils.message_utils import send_message, ask_for_location
 from utils.context_utils import update_location   # ใช้เมื่อผู้ใช้ส่ง location
+
+# ========= AI Function Calling =========
+from function_calling import process_with_function_calling
 
 def handle_message(data: Dict[str, Any]) -> None:
     chat_id = None
@@ -87,12 +89,9 @@ def handle_message(data: Dict[str, Any]) -> None:
             _send_help(chat_id)
 
         else:
-            # ไม่เข้าใจคำสั่ง
-            send_message(
-                chat_id,
-                "❓ ไม่เข้าใจคำสั่ง ลองใหม่ หรือพิมพ์ /help\n\n"
-                "ถ้ามีปัญหาสอบถามทีมดูแลระบบ"
-            )
+            # ส่งข้อความทั่วไปให้ AI (GPT) ตอบกลับ
+            reply = process_with_function_calling(user_text)
+            send_message(chat_id, reply)
 
     except Exception as e:
         # ส่ง error ให้ผู้ใช้ (ถ้า chat_id ยังมี) และ log stacktrace
