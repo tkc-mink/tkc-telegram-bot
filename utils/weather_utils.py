@@ -30,11 +30,18 @@ def get_weather_forecast(text=None, lat=None, lon=None):
             wind = data.get("wind", {})
             wind_speed = wind.get("speed", "-")
             city = data.get("name", "ไม่ทราบตำแหน่ง")
+
+            # --- เพิ่ม logic: ถ้า temp = temp_min = temp_max ให้แสดงค่าเดียว ---
+            if temp == temp_min == temp_max:
+                temp_str = f"อุณหภูมิ: {temp}°C"
+            else:
+                temp_str = f"อุณหภูมิ: {temp}°C (สูงสุด {temp_max}°C / ต่ำสุด {temp_min}°C)"
+
             # ข้อความภาษาไทย
             return (
                 f"📍 สภาพอากาศวันนี้ ({city})\n"
                 f"สภาพอากาศ: {desc.capitalize()}\n"
-                f"อุณหภูมิ: {temp}°C (สูงสุด {temp_max}°C / ต่ำสุด {temp_min}°C)\n"
+                f"{temp_str}\n"
                 f"ความชื้น: {humidity}%\n"
                 f"ลม: {wind_speed} กม./ชม."
             )
