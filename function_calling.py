@@ -1,10 +1,9 @@
-# function_calling.py
+# src/function_calling.py
 
 import os
 import json
 from openai import OpenAI
 
-# เปลี่ยนเป็น import จากโฟลเดอร์ utils
 from utils.weather_utils import get_weather_forecast
 from utils.gold_utils    import get_gold_price
 from utils.news_utils    import get_news
@@ -15,10 +14,8 @@ from utils.serp_utils    import (
     get_crypto_price,
 )
 
-# สร้าง client ด้วย API key จาก ENV
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# กำหนด metadata ของฟังก์ชันที่ GPT จะเรียกใช้
 FUNCTIONS = [
     {
         "name": "get_weather_forecast",
@@ -81,7 +78,6 @@ FUNCTIONS = [
     },
 ]
 
-# ข้อความ system prompt
 SYSTEM_PROMPT = (
     "คุณคือผู้ช่วย AI ภาษาไทยขององค์กรกลุ่มตระกูลชัย "
     "ตอบคำถามทั่วไปอย่างสุภาพ จริงใจ และเป็นประโยชน์ "
@@ -188,3 +184,22 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
         # กรณี error
         print(f"[function_calling] {e}")
         return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
+
+def summarize_text_with_gpt(text: str) -> str:
+    """
+    สรุปเนื้อหาข้อความ (text) ด้วย GPT-4o แบบภาษาไทย
+    """
+    try:
+        messages = [
+            {"role": "system", "content": "ช่วยสรุปเนื้อหานี้เป็นข้อความสั้นๆ ภาษาไทย"},
+            {"role": "user", "content": text}
+        ]
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages
+        )
+        msg = response.choices[0].message
+        return msg.content.strip() if msg.content else "❌ ไม่พบข้อความสรุป"
+    except Exception as e:
+        print(f"[summarize_text_with_gpt] {e}")
+        return "❌ สรุปข้อความไม่สำเร็จ"
