@@ -80,10 +80,8 @@ def handle_message(data: Dict[str, Any]) -> None:
             handle_google_image(chat_id, user_text)
         elif user_text_low.startswith("/review"):
             handle_review(chat_id, user_text)
-        # ===== ฟีเจอร์ใหม่: backup status =====
         elif user_text_low.startswith("/backup_status") or "backup ล่าสุด" in user_text_low:
             handle_backup_status(chat_id, user_text)
-        # ===== future feature/report/faq =====
         elif user_text_low.startswith("/report") or user_text_low.startswith("/summary"):
             handle_report(chat_id, user_text)
         elif user_text_low.startswith("/faq"):
