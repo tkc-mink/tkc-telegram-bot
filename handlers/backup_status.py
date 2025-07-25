@@ -1,15 +1,17 @@
-# handlers/backup_status.py
-from utils.message_utils import send_message
-from utils.backup_utils import get_backup_status  # ต้องมีฟังก์ชันนี้
+from utils.backup_utils import get_backup_status
 
 def handle_backup_status(chat_id, user_text):
-    status = get_backup_status()   # เช่น {'last_backup': '2025-07-25 17:30', 'files': 4, ...}
-    if not status:
-        send_message(chat_id, "ยังไม่มีข้อมูลการสำรองล่าสุดในระบบ")
-        return
-    msg = (
-        f"📦 Backup ล่าสุด: {status['last_backup']}\n"
-        f"จำนวนไฟล์: {status['files']}\n"
-        f"สถานะ: {status['result']}\n"
-    )
-    send_message(chat_id, msg)
+    info = get_backup_status()   # อ่านข้อมูล backup ล่าสุด (อ่านจาก log หรือไฟล์ JSON)
+    # ส่งข้อความสรุปให้ user
+    if info:
+        message = (
+            f"🟢 Backup ล่าสุด\n"
+            f"- วันที่: {info['date']}\n"
+            f"- ไฟล์: {info['filename']}\n"
+            f"- ขนาด: {info['size']} bytes\n"
+            f"- สถานะ: {'สำเร็จ' if info['success'] else 'ผิดพลาด'}"
+        )
+    else:
+        message = "ยังไม่พบข้อมูล backup ล่าสุด"
+    from utils.message_utils import send_message   # local import ป้องกัน import วน
+    send_message(chat_id, message)
