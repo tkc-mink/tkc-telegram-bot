@@ -21,13 +21,19 @@ from handlers.oil          import handle_oil
 from handlers.search       import handle_google_search, handle_google_image
 from handlers.report       import handle_report
 from handlers.faq          import handle_faq
-from handlers.backup_status import handle_backup_status   # เพิ่ม!
+from handlers.backup_status import handle_backup_status
 # future: from handlers.news import handle_news
 
 # ===== Utils =====
 from utils.message_utils import send_message, ask_for_location
 from utils.context_utils import update_location
 from function_calling import process_with_function_calling
+from utils.bot_profile import get_bot_profile
+
+def bot_reply(user_message: str) -> str:
+    prof = get_bot_profile()
+    # สามารถปรับสำนวนให้เหมาะกับแต่ละคอนเท็กซ์ได้อีก
+    return f"{prof['self_pronoun']}ชื่อ{prof['nickname']}นะครับ\n{user_message}"
 
 def handle_message(data: Dict[str, Any]) -> None:
     """
@@ -56,7 +62,7 @@ def handle_message(data: Dict[str, Any]) -> None:
 
         # 3) ไม่มีข้อความ
         if not user_text:
-            send_message(chat_id, "⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help")
+            send_message(chat_id, bot_reply("⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help"))
             return
 
         # 4) Dispatch ตามคำสั่ง/คีย์เวิร์ด (ฟีเจอร์หลัก)
@@ -95,12 +101,12 @@ def handle_message(data: Dict[str, Any]) -> None:
         else:
             # ส่งข้อความทั่วไปให้ AI (GPT) ตอบกลับ
             reply = process_with_function_calling(user_text)
-            send_message(chat_id, reply)
+            send_message(chat_id, bot_reply(reply))
 
     except Exception as e:
         if chat_id is not None:
             try:
-                send_message(chat_id, f"❌ ระบบขัดข้อง: {e}")
+                send_message(chat_id, bot_reply(f"❌ ระบบขัดข้อง: {e}"))
             except Exception:
                 pass
         print("[MAIN_HANDLER ERROR]")
@@ -112,14 +118,14 @@ def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is not None and lon is not None:
         update_location(str(chat_id), lat, lon)
-        send_message(chat_id, "✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย (/weather)")
+        send_message(chat_id, bot_reply("✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย (/weather)"))
     else:
-        send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
+        send_message(chat_id, bot_reply("❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่"))
 
 def _send_help(chat_id: int) -> None:
-    send_message(
-        chat_id,
-        "ยินดีต้อนรับสู่ TKC Bot 🦊\n\n"
+    prof = get_bot_profile()
+    help_msg = (
+        f"ยินดีต้อนรับจาก{prof['self_pronoun']}{prof['nickname']} 🦊\n\n"
         "คำสั่งที่ใช้ได้:\n"
         "• /my_history   ดูประวัติคำถามย้อนหลัง 10 รายการ\n"
         "• /gold          ราคาทองคำวันนี้\n"
@@ -136,3 +142,4 @@ def _send_help(chat_id: int) -> None:
         "• พิมพ์ 'ขอรูป ...' หรือ 'หารูป ...' เพื่อค้นหารูปภาพให้\n"
         "\nพิมพ์ /help ได้ตลอดเพื่อดูคำสั่ง"
     )
+    send_message(chat_id, help_msg)
