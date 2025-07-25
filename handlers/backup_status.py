@@ -34,6 +34,10 @@ def handle_backup_status(chat_id, user_text):
             f"- ไฟล์ที่สำรอง:\n{file_str}"
         )
     else:
-        message = "⚠️ ยังไม่พบ log หรือยังไม่เคย backup สำเร็จ"
+        err_detail = info.get("err", "") if info else ""
+        if err_detail:
+            message = f"⚠️ ยังไม่พบ log หรือยังไม่เคย backup สำเร็จ\n[Error: {err_detail}]"
+        else:
+            message = "⚠️ ยังไม่พบ log หรือยังไม่เคย backup สำเร็จ"
 
     send_message(chat_id, message, parse_mode="HTML")
