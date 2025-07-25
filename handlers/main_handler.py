@@ -17,11 +17,13 @@ from handlers.lottery  import handle_lottery
 from handlers.stock    import handle_stock
 from handlers.crypto   import handle_crypto
 from handlers.oil      import handle_oil
-from handlers.search   import handle_google_search, handle_google_image  # เพิ่ม!
+from handlers.search   import handle_google_search, handle_google_image
+from handlers.report   import handle_report
+from handlers.faq      import handle_faq
 
 # ========= Utils =========
 from utils.message_utils import send_message, ask_for_location
-from utils.context_utils import update_location   # ใช้เมื่อผู้ใช้ส่ง location
+from utils.context_utils import update_location
 
 # ========= AI Function Calling =========
 from function_calling import process_with_function_calling
@@ -55,7 +57,16 @@ def handle_message(data: Dict[str, Any]) -> None:
             return
 
         # 4) Dispatch ตามคำสั่ง/คีย์เวิร์ด (ฟีเจอร์หลัก)
-        if user_text_low.startswith("/my_history"):
+        if user_text_low.startswith("/report") or user_text_low.startswith("/summary"):
+            handle_report(chat_id, user_text)
+
+        elif user_text_low.startswith("/faq"):
+            handle_faq(chat_id, user_text)
+
+        elif user_text_low.startswith("/add_faq"):
+            handle_faq(chat_id, user_text)
+
+        elif user_text_low.startswith("/my_history"):
             handle_history(chat_id, user_text)
 
         elif user_text_low.startswith("/gold") or "ราคาทอง" in user_text_low:
@@ -131,6 +142,9 @@ def _send_help(chat_id: int) -> None:
         "• /crypto <SYM>  ราคา Crypto เช่น /crypto BTC\n"
         "• /oil           ราคาน้ำมันโลก\n"
         "• /weather       สภาพอากาศ (ต้องแชร์ location ก่อนด้วยปุ่ม 📍)\n"
+        "• /report        สรุปสถิติการใช้งานวันนี้/สัปดาห์\n"
+        "• /faq           ดู/เพิ่ม คำถามที่พบบ่อย (FAQ)\n"
+        "• /add_faq       เพิ่มคำถาม FAQ\n"
         "• /search        ค้นเว็บ Google เช่น /search รถไฟฟ้า\n"
         "• /image         ค้นหารูป Google เช่น /image รถยนต์ไฟฟ้า\n"
         "• /review        ให้คะแนนบอท (1-5)\n"
