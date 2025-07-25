@@ -13,6 +13,7 @@ from utils.serp_utils    import (
     get_lottery_result,
     get_crypto_price,
 )
+from utils.bot_profile import adjust_bot_tone, bot_intro
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -79,15 +80,13 @@ FUNCTIONS = [
 ]
 
 SYSTEM_PROMPT = (
-    "คุณคือผู้ช่วย AI ภาษาไทยขององค์กรกลุ่มตระกูลชัย "
-    "ตอบคำถามทั่วไปอย่างสุภาพ จริงใจ และเป็นประโยชน์ "
+    "คุณคือบอทผู้ช่วยภาษาไทยชื่อ 'ชิบะน้อย' เป็นผู้ชาย แทนตัวเองว่า 'ผม' "
+    "ตอบสุภาพ จริงใจ เป็นกันเอง ไม่ต้องพูดชื่อบอททุกข้อความ ยกเว้นถูกถามชื่อหรือทักครั้งแรก "
+    "ถ้าผู้ใช้ถามชื่อ ให้แนะนำว่า 'ผมชื่อชิบะน้อยนะครับ' "
     "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้"
 )
 
 def function_dispatch(fname, args):
-    """
-    Map function name from GPT to actual Python function
-    """
     if fname == "get_weather_forecast":
         return get_weather_forecast(text=args.get("text", ""))
     elif fname == "get_gold_price":
@@ -106,9 +105,6 @@ def function_dispatch(fname, args):
         return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
 
 def _normalize_context(ctx):
-    """
-    Ensure context is a list of message-dict (role/content)
-    """
     if not ctx:
         return []
     norm = []
@@ -117,22 +113,20 @@ def _normalize_context(ctx):
             norm.append(item)
         elif isinstance(item, str):
             norm.append({"role": "user", "content": item})
-    # เก็บเฉพาะ context 5 ข้อความล่าสุด
     return norm[-5:]
 
 def process_with_function_calling(user_message: str, ctx=None, debug=False) -> str:
-    """
-    Function calling + multi-turn context-aware, fallback GPT answer.
-    """
     try:
-        # 1. เตรียม conversation context
+        # ถ้าคำถามเกี่ยวกับชื่อ ให้ตอบ intro ทันที
+        if any(x in user_message.lower() for x in ["ชื่ออะไร", "คุณชื่ออะไร", "คุณคือใคร", "bot ชื่ออะไร", "/start"]):
+            return bot_intro()
+
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if ctx:
             norm_ctx = _normalize_context(ctx)
             messages.extend(norm_ctx)
         messages.append({"role": "user", "content": user_message})
 
-        # 2. เรียก GPT ครั้งแรก ให้เลือกเรียก function อัตโนมัติ
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -141,13 +135,11 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
         )
         msg = response.choices[0].message
 
-        # 3. ถ้า GPT สั่งเรียก function ให้ dispatch แล้วเรียก GPT รอบสองสรุปผล
         if msg.function_call:
             fname = msg.function_call.name
             args = json.loads(msg.function_call.arguments or "{}")
             result = function_dispatch(fname, args)
 
-            # เพิ่มข้อความที่ bot เรียก function
             messages.append({
                 "role": "assistant",
                 "function_call": {
@@ -155,14 +147,12 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
                     "arguments": json.dumps(args, ensure_ascii=False)
                 }
             })
-            # เพิ่มข้อความที่ function ตอบกลับ
             messages.append({
                 "role": "function",
                 "name": fname,
                 "content": result
             })
 
-            # เรียก GPT อีกครั้งโดยไม่ต้องเรียก function แล้ว
             response2 = client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
@@ -175,20 +165,16 @@ def process_with_function_calling(user_message: str, ctx=None, debug=False) -> s
                 print(json.dumps(messages, ensure_ascii=False, indent=2))
                 print("=== FUNC-CALL RESPONSE ===")
                 print(msg2.content)
-            return msg2.content.strip() if msg2.content else result
+            return adjust_bot_tone(msg2.content.strip()) if msg2.content else adjust_bot_tone(result)
 
-        # 4. มิฉะนั้น ให้ตอบกลับปกติ
-        return msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
+        answer = msg.content.strip() if msg.content else "❌ ไม่พบข้อความตอบกลับ"
+        return adjust_bot_tone(answer)
 
     except Exception as e:
-        # กรณี error
         print(f"[function_calling] {e}")
         return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
 
 def summarize_text_with_gpt(text: str) -> str:
-    """
-    สรุปเนื้อหาข้อความ (text) ด้วย GPT-4o แบบภาษาไทย
-    """
     try:
         messages = [
             {"role": "system", "content": "ช่วยสรุปเนื้อหานี้เป็นข้อความสั้นๆ ภาษาไทย"},
