@@ -1,6 +1,7 @@
 import os
 import io
 import json
+from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
@@ -8,28 +9,26 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 CREDENTIALS_FILE = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'avian-silo-466800-g2-9f6c4fb7500c.json')
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
-# รายชื่อไฟล์ที่ต้องสำรอง/คืนค่า (ข้อมูลเท่านั้น)
 BACKUP_FILES = [
     "usage.json",
     "image_usage.json",
     "context_history.json",
     "location_logs.json"
-    # เพิ่มได้ตามต้องการ
 ]
 
-GDRIVE_BACKUP_FOLDER_ID = None  # ใส่ folder id หากต้องการ backup ไว้ในโฟลเดอร์บน Google Drive
+BACKUP_LOG_FILE = "data/backup_log.json"
+GDRIVE_BACKUP_FOLDER_ID = None  # ถ้ามี folder เฉพาะให้ใส่ (หรือ None = root)
 
 def get_drive_service():
-    """
-    คืนค่า Google Drive service (OAuth with service account)
-    """
-    creds = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-    return build('drive', 'v3', credentials=creds)
+    try:
+        creds = service_account.Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        print(f"[GOOGLE DRIVE ERROR] Credentials: {e}")
+        raise
 
 def delete_all_by_name(file_name):
-    """
-    ลบไฟล์ใน Google Drive ที่มีชื่อซ้ำกันทั้งหมด
-    """
+    """ลบไฟล์ชื่อเดียวกันทั้งหมดออกจาก Google Drive"""
     service = get_drive_service()
     query = f"name='{file_name}'"
     results = service.files().list(q=query, fields="files(id, name)", pageSize=100).execute()
@@ -38,12 +37,10 @@ def delete_all_by_name(file_name):
         try:
             service.files().delete(fileId=f['id']).execute()
         except Exception as e:
-            print(f"Cannot delete file: {f['id']} - {e}")
+            print(f"[GOOGLE DRIVE ERROR] Delete {f['id']}: {e}")
 
 def upload_to_gdrive(file_path, gdrive_folder_id=None):
-    """
-    อัปโหลดไฟล์ไปยัง Google Drive (ลบไฟล์ชื่อเดิมก่อน)
-    """
+    """อัปโหลดไฟล์ไปยัง Google Drive (ลบไฟล์ชื่อซ้ำเดิมก่อน)"""
     delete_all_by_name(os.path.basename(file_path))
     service = get_drive_service()
     file_metadata = {'name': os.path.basename(file_path)}
@@ -61,12 +58,10 @@ def search_file_by_name(file_name):
     return files[0]['id'] if files else None
 
 def download_from_gdrive(file_name, destination):
-    """
-    ดาวน์โหลดไฟล์ชื่อ file_name จาก Google Drive ลง path ที่กำหนด
-    """
+    """ดาวน์โหลดไฟล์ชื่อ file_name จาก Google Drive ลง path ที่กำหนด"""
     file_id = search_file_by_name(file_name)
     if not file_id:
-        print(f"[restore] Not found {file_name} on Google Drive")
+        print(f"[RESTORE] Not found {file_name} on Google Drive")
         return False
     service = get_drive_service()
     request = service.files().get_media(fileId=file_id)
@@ -79,30 +74,42 @@ def download_from_gdrive(file_name, destination):
     if os.path.exists(destination) and os.path.getsize(destination) > 0:
         return True
     else:
-        print(f"[restore] Downloaded but file is empty: {destination}")
+        print(f"[RESTORE] Downloaded but file is empty: {destination}")
         return False
 
 def backup_all():
-    """
-    สำรองไฟล์ทั้งหมดใน BACKUP_FILES ไป Google Drive
-    """
+    """สำรองไฟล์ทั้งหมดใน BACKUP_FILES ไป Google Drive"""
     results = {}
+    status = {
+        "timestamp": datetime.now().isoformat(),
+        "files": [],
+        "success": True
+    }
     for file_path in BACKUP_FILES:
         try:
             if os.path.exists(file_path):
                 file_id = upload_to_gdrive(file_path, GDRIVE_BACKUP_FOLDER_ID)
                 results[file_path] = file_id
+                status["files"].append({"file": file_path, "id": file_id, "ok": True})
             else:
                 results[file_path] = None
+                status["files"].append({"file": file_path, "id": None, "ok": False})
         except Exception as e:
             results[file_path] = f"error: {e}"
+            status["files"].append({"file": file_path, "id": None, "ok": False, "err": str(e)})
+            status["success"] = False
+    # Save log
+    try:
+        os.makedirs(os.path.dirname(BACKUP_LOG_FILE), exist_ok=True)
+        with open(BACKUP_LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(status, f, ensure_ascii=False, indent=2)
+    except Exception as log_err:
+        print(f"[BACKUP LOG ERROR] {log_err}")
     print("[BACKUP RESULT]", results)
     return results
 
 def restore_all():
-    """
-    คืนค่าไฟล์ทั้งหมดใน BACKUP_FILES จาก Google Drive
-    """
+    """คืนค่าไฟล์ทั้งหมดใน BACKUP_FILES จาก Google Drive"""
     for file_path in BACKUP_FILES:
         try:
             ok = download_from_gdrive(os.path.basename(file_path), file_path)
@@ -110,10 +117,22 @@ def restore_all():
         except Exception as e:
             print(f"[RESTORE ERROR] {file_path}: {e}")
 
+def get_backup_status():
+    """อ่าน log การสำรองล่าสุด (สำหรับตอบบอท/แอดมิน)"""
+    try:
+        with open(BACKUP_LOG_FILE, "r", encoding="utf-8") as f:
+            status = json.load(f)
+        return status
+    except Exception as e:
+        return {
+            "timestamp": None,
+            "success": False,
+            "files": [],
+            "err": f"ไม่พบ log การสำรองล่าสุด ({e})"
+        }
+
 def setup_backup_scheduler():
-    """
-    ตั้ง scheduler (ใช้ APScheduler) ให้ backup ทุกวันเวลา 00:09 (Asia/Bangkok)
-    """
+    """ตั้ง scheduler (APScheduler) ให้ backup ทุกวัน เวลา 00:09 น. (Asia/Bangkok)"""
     from apscheduler.schedulers.background import BackgroundScheduler
     import pytz
 
