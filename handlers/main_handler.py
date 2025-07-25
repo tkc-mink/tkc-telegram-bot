@@ -1,13 +1,7 @@
 # handlers/main_handler.py
-# -*- coding: utf-8 -*-
-"""
-Dispatch ข้อความ/อีเวนต์จาก Telegram (ผ่าน Flask webhook)
-ไปยัง handler ย่อยแต่ละฟีเจอร์
-"""
 from typing import Dict, Any
 import traceback
 
-# ===== Feature Handlers =====
 from handlers.history      import handle_history
 from handlers.review       import handle_review
 from handlers.weather      import handle_weather
@@ -22,23 +16,16 @@ from handlers.search       import handle_google_search, handle_google_image
 from handlers.report       import handle_report
 from handlers.faq          import handle_faq
 from handlers.backup_status import handle_backup_status
-# future: from handlers.news import handle_news
 
-# ===== Utils =====
 from utils.message_utils import send_message, ask_for_location
 from utils.context_utils import update_location
 from function_calling import process_with_function_calling
-from utils.bot_profile import get_bot_profile
+from utils.bot_profile import bot_intro, adjust_bot_tone
 
-def bot_reply(user_message: str) -> str:
-    prof = get_bot_profile()
-    # สามารถปรับสำนวนให้เหมาะกับแต่ละคอนเท็กซ์ได้อีก
-    return f"{prof['self_pronoun']}ชื่อ{prof['nickname']}นะครับ\n{user_message}"
+# จำว่าแต่ละ user แนะนำตัวไปแล้วหรือยัง (memory แบบง่าย)
+user_intro = {}
 
 def handle_message(data: Dict[str, Any]) -> None:
-    """
-    จุดหลักรับ message/อีเวนต์จาก Telegram webhook แล้ว dispatch ไป handler ต่างๆ
-    """
     chat_id = None
     try:
         msg: Dict[str, Any] = data.get("message", {}) or {}
@@ -62,8 +49,14 @@ def handle_message(data: Dict[str, Any]) -> None:
 
         # 3) ไม่มีข้อความ
         if not user_text:
-            send_message(chat_id, bot_reply("⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help"))
+            send_message(chat_id, "⚠️ กรุณาพิมพ์ข้อความ หรือใช้ /help")
             return
+
+        # == INTRO LOGIC ==
+        intro_needed = False
+        if user_text_low.startswith("/start") or not user_intro.get(chat_id):
+            intro_needed = True
+            user_intro[chat_id] = True  # จดว่าแนะนำตัวแล้ว
 
         # 4) Dispatch ตามคำสั่ง/คีย์เวิร์ด (ฟีเจอร์หลัก)
         if user_text_low.startswith("/my_history"):
@@ -90,56 +83,55 @@ def handle_message(data: Dict[str, Any]) -> None:
             handle_backup_status(chat_id, user_text)
         elif user_text_low.startswith("/report") or user_text_low.startswith("/summary"):
             handle_report(chat_id, user_text)
-        elif user_text_low.startswith("/faq"):
+        elif user_text_low.startswith("/faq") or user_text_low.startswith("/add_faq"):
             handle_faq(chat_id, user_text)
-        elif user_text_low.startswith("/add_faq"):
-            handle_faq(chat_id, user_text)
-        # elif user_text_low.startswith("/news"):
-        #     handle_news(chat_id, user_text)
         elif user_text_low.startswith("/start") or user_text_low.startswith("/help"):
+            if intro_needed:
+                send_message(chat_id, bot_intro())
             _send_help(chat_id)
+        elif "ชื่ออะไร" in user_text_low or "คุณคือใคร" in user_text_low:
+            send_message(chat_id, bot_intro())
         else:
-            # ส่งข้อความทั่วไปให้ AI (GPT) ตอบกลับ
+            # ตอบแบบ AI/Function calling
             reply = process_with_function_calling(user_text)
-            send_message(chat_id, bot_reply(reply))
+            if intro_needed:
+                reply = bot_intro() + "\n" + adjust_bot_tone(reply)
+            else:
+                reply = adjust_bot_tone(reply)
+            send_message(chat_id, reply)
 
     except Exception as e:
         if chat_id is not None:
             try:
-                send_message(chat_id, bot_reply(f"❌ ระบบขัดข้อง: {e}"))
+                send_message(chat_id, f"❌ ระบบขัดข้อง: {e}")
             except Exception:
                 pass
         print("[MAIN_HANDLER ERROR]")
         print(traceback.format_exc())
 
-# --- Helper functions ---
 def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
     loc = msg.get("location", {})
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is not None and lon is not None:
         update_location(str(chat_id), lat, lon)
-        send_message(chat_id, bot_reply("✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย (/weather)"))
+        send_message(chat_id, "✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย (/weather)")
     else:
-        send_message(chat_id, bot_reply("❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่"))
+        send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
 
 def _send_help(chat_id: int) -> None:
-    prof = get_bot_profile()
-    help_msg = (
-        f"ยินดีต้อนรับจาก{prof['self_pronoun']}{prof['nickname']} 🦊\n\n"
+    send_message(
+        chat_id,
         "คำสั่งที่ใช้ได้:\n"
-        "• /my_history   ดูประวัติคำถามย้อนหลัง 10 รายการ\n"
-        "• /gold          ราคาทองคำวันนี้\n"
-        "• /lottery       ผลสลากกินแบ่งรัฐบาลล่าสุด\n"
-        "• /stock <SYM>   ราคาหุ้น เช่น /stock AAPL\n"
-        "• /crypto <SYM>  ราคา Crypto เช่น /crypto BTC\n"
-        "• /oil           ราคาน้ำมันโลก\n"
-        "• /weather       สภาพอากาศ (ต้องแชร์ location ก่อนด้วยปุ่ม 📍)\n"
-        "• /search        ค้นเว็บ Google เช่น /search รถไฟฟ้า\n"
-        "• /image         ค้นหารูป Google เช่น /image รถยนต์ไฟฟ้า\n"
-        "• /review        ให้คะแนนบอท (1-5)\n"
-        "• /backup_status สถานะ backup ล่าสุด\n"
-        "• ส่งเอกสาร PDF/Word/Excel/PPT/TXT เพื่อให้บอทช่วยสรุป\n"
-        "• พิมพ์ 'ขอรูป ...' หรือ 'หารูป ...' เพื่อค้นหารูปภาพให้\n"
-        "\nพิมพ์ /help ได้ตลอดเพื่อดูคำสั่ง"
+        "• /my_history   ดูประวัติย้อนหลัง\n"
+        "• /gold          ราคาทอง\n"
+        "• /lottery       ผลสลากฯ\n"
+        "• /stock <SYM>   ราคาหุ้น\n"
+        "• /crypto <SYM>  ราคาเหรียญ\n"
+        "• /oil           ราคาน้ำมัน\n"
+        "• /weather       พยากรณ์อากาศ (แชร์ location)\n"
+        "• /search        ค้นเว็บ Google\n"
+        "• /image         ค้นหารูป Google\n"
+        "• /review        รีวิวบอท\n"
+        "• /backup_status เช็ก backup\n"
+        "\nพิมพ์ /help เพื่อดูคำสั่ง"
     )
-    send_message(chat_id, help_msg)
