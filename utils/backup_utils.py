@@ -1,28 +1,28 @@
-# utils/backup_utils.py
+# handlers/backup_status.py
 
-import json
-from datetime import datetime
+from utils.backup_utils import get_backup_status
+from utils.message_utils import send_message
 
-BACKUP_LOG_PATH = "data/backup_log.json"
-
-def get_backup_status():
+def handle_backup_status(chat_id, user_text):
     """
-    อ่านสถานะล่าสุดของการ backup จากไฟล์ log
+    ตอบสถานะ backup ล่าสุดให้ผู้ใช้
     """
-    try:
-        with open(BACKUP_LOG_PATH, "r", encoding="utf-8") as f:
-            log = json.load(f)
-        # ตรวจสอบ timestamp และข้อมูลเบื้องต้น
-        last_backup = log.get("last_backup")
-        files = log.get("files", [])
-        status = log.get("status", "unknown")
-        details = log.get("details", "")
-        # ตรวจสอบอายุ backup (ถ้าจำเป็น)
-        return {
-            "last_backup": last_backup,
-            "files": files,
-            "status": status,
-            "details": details
-        }
-    except Exception as e:
-        return None
+    status = get_backup_status()
+    if not status:
+        send_message(chat_id, "❌ ยังไม่พบข้อมูล backup ล่าสุดในระบบ หรือยังไม่เคยสำรองข้อมูลเลย")
+        return
+
+    last_backup = status['last_backup']
+    files = ", ".join(status['files'])
+    result = status['status']
+    details = status.get('details', '')
+
+    msg = (
+        f"📦 <b>Backup ล่าสุด</b>\n"
+        f"🕒 เวลา: <code>{last_backup}</code>\n"
+        f"📄 ไฟล์: {files}\n"
+        f"✅ สถานะ: <b>{result}</b>\n"
+    )
+    if details:
+        msg += f"ℹ️ {details}\n"
+    send_message(chat_id, msg, parse_mode="HTML")
