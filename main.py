@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 
 from handlers.main_handler import handle_message
-from backup_utils import restore_all, setup_backup_scheduler
+from utils.backup_utils import restore_all, setup_backup_scheduler   # <<=== แก้ path ตรงนี้
 from settings import SUPPORTED_FORMATS
 
 app = Flask(__name__)
