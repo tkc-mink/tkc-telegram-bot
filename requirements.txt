@@ -1,21 +1,32 @@
+# --- Web Framework ---
 flask==2.3.3
 gunicorn==21.2.0
 
-openai>=1.25.0,<2.0.0
+# --- AI & NLP ---
+openai==1.43.0
+langdetect==1.0.9
+
+# --- HTTP Requests & Parsing ---
 requests==2.31.0
 beautifulsoup4==4.12.3
 lxml==5.2.1
-langdetect==1.0.9
 
+# --- PDF/Office Handling ---
 python-pptx==0.6.23
 openpyxl==3.1.2
 PyPDF2==3.0.1
 
+# --- Google API ---
 google-api-python-client==2.131.0
 google-api-core==2.15.0
 google-auth==2.29.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
 
-apscheduler==3.6.3
+# --- Schedulers & Time ---
+APScheduler==3.6.3
 pytz==2024.1
+tzdata==2024.1
+
+# --- Utilities ---
+python-dotenv==1.0.1
