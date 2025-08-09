@@ -4,8 +4,8 @@
 import os
 import json
 from typing import List, Dict, Any, Optional
-from openai import OpenAI
 
+from utils.openai_client import client  # ใช้ client กลาง
 from utils.weather_utils import get_weather_forecast
 from utils.gold_utils    import get_gold_price
 from utils.news_utils    import get_news
@@ -17,8 +17,6 @@ from utils.serp_utils    import (
 )
 from utils.bot_profile import adjust_bot_tone, bot_intro
 
-# ---------- OpenAI Client (ไม่มี proxies ในโค้ด) ----------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 # ---------- Tools (Function Calling แบบใหม่) ----------
@@ -117,20 +115,19 @@ def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
     try:
         if fname == "get_weather_forecast":
             return get_weather_forecast(text=args.get("text", ""))
-        elif fname == "get_gold_price":
+        if fname == "get_gold_price":
             return get_gold_price()
-        elif fname == "get_news":
+        if fname == "get_news":
             return get_news(args.get("topic", "ข่าว"))
-        elif fname == "get_stock_info":
+        if fname == "get_stock_info":
             return get_stock_info(args.get("query", "หุ้น"))
-        elif fname == "get_oil_price":
+        if fname == "get_oil_price":
             return get_oil_price()
-        elif fname == "get_lottery_result":
+        if fname == "get_lottery_result":
             return get_lottery_result()
-        elif fname == "get_crypto_price":
+        if fname == "get_crypto_price":
             return get_crypto_price(args.get("coin", "bitcoin"))
-        else:
-            return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
+        return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
     except Exception as e:
         print(f"[function_dispatch] {fname} error: {e}")
         return "❌ ดึงข้อมูลจากฟังก์ชันไม่สำเร็จ"
@@ -138,7 +135,7 @@ def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
 def _normalize_context(ctx) -> List[Dict[str, str]]:
     if not ctx:
         return []
-    norm = []
+    norm: List[Dict[str, str]] = []
     for item in ctx:
         if isinstance(item, dict) and "role" in item and "content" in item:
             norm.append({"role": item["role"], "content": item["content"]})
@@ -149,11 +146,10 @@ def _normalize_context(ctx) -> List[Dict[str, str]]:
 # ---------- แกนหลักสำหรับตอบ + เรียก tools ----------
 def process_with_function_calling(user_message: str, ctx=None, debug: bool=False) -> str:
     try:
-        # ถ้าคำถามเกี่ยวกับชื่อ ให้ตอบ intro ทันที
         if any(x in user_message.lower() for x in ["ชื่ออะไร", "คุณชื่ออะไร", "คุณคือใคร", "bot ชื่ออะไร", "/start"]):
             return bot_intro()
 
-        messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
         if ctx:
             messages.extend(_normalize_context(ctx))
         messages.append({"role": "user", "content": user_message})
@@ -165,28 +161,26 @@ def process_with_function_calling(user_message: str, ctx=None, debug: bool=False
             tools=TOOLS,
             tool_choice="auto",
         )
-        choice = resp.choices[0]
-        msg = choice.message
+        msg = resp.choices[0].message
 
-        # ถ้าไม่มี tool_calls แสดงว่าโมเดลตอบเองได้เลย
+        # ถ้าไม่มี tool_calls โมเดลตอบเองได้เลย
         if not getattr(msg, "tool_calls", None):
             answer = (msg.content or "").strip() or "❌ ไม่พบข้อความตอบกลับ"
             return adjust_bot_tone(answer)
 
         # มีการเรียก tool (อาจมากกว่า 1 รายการ)
-        tool_calls = msg.tool_calls
-        messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": [
-            {
-                "id": tc.id,
-                "type": tc.type,
-                "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments
-                }
-            } for tc in tool_calls
-        ]})
+        tool_calls = msg.tool_calls or []
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in tool_calls
+            ],
+        })
 
         # รันฟังก์ชัน Python ตามที่โมเดลเรียก แล้วแนบผลลัพธ์กลับเป็น role=tool
+        last_result_text: Optional[str] = None
         for tc in tool_calls:
             fname = tc.function.name
             try:
@@ -194,7 +188,7 @@ def process_with_function_calling(user_message: str, ctx=None, debug: bool=False
             except Exception:
                 args = {}
             result_text = function_dispatch(fname, args)
-
+            last_result_text = result_text
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
@@ -217,7 +211,7 @@ def process_with_function_calling(user_message: str, ctx=None, debug: bool=False
             print("=== LLM FINAL ===")
             print(final_text)
 
-        return adjust_bot_tone(final_text if final_text else result_text)
+        return adjust_bot_tone(final_text if final_text else (last_result_text or ""))
 
     except Exception as e:
         print(f"[process_with_function_calling] {e}")
