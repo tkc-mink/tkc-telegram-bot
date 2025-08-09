@@ -1,13 +1,21 @@
 # handlers/lottery.py
-from utils.lottery_utils import get_lottery_result
-from utils.message_utils import send_message
+# -*- coding: utf-8 -*-
 
-def handle_lottery(chat_id, user_text):
-    # รองรับ /lottery [วันที่/เดือน/ปี] เช่น /lottery 1 กรกฎาคม 2567
-    parts = user_text.strip().split(" ", 1)
-    if len(parts) == 2:
-        query_date = parts[1]
-    else:
-        query_date = None
-    result = get_lottery_result(query_date)
-    send_message(chat_id, result, parse_mode="HTML")
+from utils.message_utils import send_message
+from utils.serp_utils import get_lottery_result
+
+
+def handle_lottery(chat_id: int, user_text: str) -> None:
+    """
+    ใช้:
+    - /lottery                     -> ผลล่าสุด
+    - /lottery 1 กรกฎาคม 2567     -> ระบุวันที่ (ถ้าระบบรองรับ)
+    """
+    try:
+        parts = (user_text or "").strip().split(" ", 1)
+        query_date = parts[1].strip() if len(parts) == 2 else None
+
+        result_html = get_lottery_result(query_date)  # คืน HTML พร้อมจัดรูปแบบ
+        send_message(chat_id, result_html, parse_mode="HTML")
+    except Exception as e:
+        send_message(chat_id, f"❌ ไม่สามารถดึงผลสลากได้: {e}")
