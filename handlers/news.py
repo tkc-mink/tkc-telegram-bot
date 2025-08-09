@@ -1,13 +1,19 @@
 # handlers/news.py
+# -*- coding: utf-8 -*-
 
 from utils.news_utils import get_news
 from utils.message_utils import send_message
 
-def handle_news(chat_id, query=None):
+
+def handle_news(chat_id: int, query: str | None) -> None:
     """
-    ดึงข่าวล่าสุด (หรือข่าวที่เกี่ยวข้องกับ query)
-    :param chat_id: chat id ใน Telegram
-    :param query: คำค้นหา (optional)
+    ใช้:
+    - /news
+    - /news หุ้นไทย
     """
-    news_text = get_news(query=query)
-    send_message(chat_id, news_text)
+    try:
+        q = (query or "").strip()
+        news_text = get_news(q or "ข่าวสำคัญวันนี้")
+        send_message(chat_id, news_text, parse_mode="HTML")
+    except Exception as e:
+        send_message(chat_id, f"❌ ดึงข่าวไม่สำเร็จ: {e}")
