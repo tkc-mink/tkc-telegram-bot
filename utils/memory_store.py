@@ -2,30 +2,24 @@
 # -*- coding: utf-8 -*-
 """
 Simple persistent conversation memory per user (JSON file based)
-
-- เก็บ messages ของแต่ละ chat_id (role/user/assistant + ts)
-- เก็บ summary บทสนทนา (ย่อหน้าเดียว) เพื่อลด token
-- ดึงบริบทล่าสุด (recent context) ให้ LLM ใช้ตอบต่อเนื่อง
-- มีการสรุปอัตโนมัติเมื่อประวัติเยอะเกิน (prune & summarize)
-
-NOTE:
-- ใช้คู่กับ summarize_text_with_gpt จาก function_calling (ไม่มีวงวน import)
+- Stores messages and a running summary for each user.
+- Prunes history and updates summary when conversations get too long.
 """
-
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
-import os, json, time
+from typing import List, Dict, Any, Optional, Callable
+import os
+import json
+import time
 
-# ที่เก็บความจำ
-MEMORY_DIR  = os.getenv("MEMORY_DIR", "data")
+# --- Configuration ---
+MEMORY_DIR = os.getenv("MEMORY_DIR", "data")
 MEMORY_PATH = os.path.join(MEMORY_DIR, "memory_store.json")
+MAX_HISTORY_ITEMS = int(os.getenv("MEMORY_MAX_HISTORY_ITEMS", "40"))
+KEEP_TAIL_AFTER_SUM = int(os.getenv("MEMORY_KEEP_TAIL_AFTER_SUM", "8"))
+CTX_MAX_ITEMS = int(os.getenv("MEMORY_CTX_MAX_ITEMS", "12"))
+CTX_MAX_CHARS = int(os.getenv("MEMORY_CTX_MAX_CHARS", "6000"))
 
-# ขีดจำกัด/เงื่อนไขสรุป
-MAX_HISTORY_ITEMS   = int(os.getenv("MEMORY_MAX_HISTORY_ITEMS", "40"))   # เก็บสดสูงสุดกี่รายการ ก่อนสรุป
-KEEP_TAIL_AFTER_SUM = int(os.getenv("MEMORY_KEEP_TAIL_AFTER_SUM", "8"))  # หลังสรุปเก็บท้ายไว้กี่รายการ
-CTX_MAX_ITEMS       = int(os.getenv("MEMORY_CTX_MAX_ITEMS", "12"))       # ส่งให้ LLM กี่ข้อความล่าสุด
-CTX_MAX_CHARS       = int(os.getenv("MEMORY_CTX_MAX_CHARS", "6000"))     # จำกัดตัวอักษรบริบทรวม
-
+# --- Private Helper Functions ---
 def _ensure_file():
     os.makedirs(MEMORY_DIR, exist_ok=True)
     if not os.path.exists(MEMORY_PATH):
@@ -43,56 +37,57 @@ def _load() -> Dict[str, Any]:
 def _save(db: Dict[str, Any]) -> None:
     os.makedirs(MEMORY_DIR, exist_ok=True)
     with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False)
+        json.dump(db, f, ensure_ascii=False, indent=2)
 
 def _now() -> int:
     return int(time.time())
 
 def _get_bucket(db: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    b = db.get(user_id)
-    if not b:
-        b = {"messages": [], "summary": ""}
-        db[user_id] = b
-    return b
+    return db.setdefault(user_id, {"messages": [], "summary": ""})
 
+# --- Public API Functions ---
 def append_message(user_id: str, role: str, content: str) -> None:
+    """Adds a new message to a user's conversation history."""
     db = _load()
     b = _get_bucket(db, user_id)
     b["messages"].append({"role": role, "content": (content or "").strip(), "ts": _now()})
     _save(db)
 
 def get_summary(user_id: str) -> str:
+    """Retrieves the current conversation summary for a user."""
     db = _load()
     b = _get_bucket(db, user_id)
     return b.get("summary", "")
 
 def set_summary(user_id: str, summary: str) -> None:
+    """Manually sets the conversation summary for a user."""
     db = _load()
     b = _get_bucket(db, user_id)
     b["summary"] = (summary or "").strip()
     _save(db)
 
 def get_recent_context(user_id: str, max_items: int = CTX_MAX_ITEMS, max_chars: int = CTX_MAX_CHARS) -> List[Dict[str, str]]:
+    """Gets the most recent messages for context, respecting character limits."""
     db = _load()
     b = _get_bucket(db, user_id)
     msgs = list(b.get("messages", []))[-max_items:]
 
-    # ตัดความยาวรวมโดยวิธีย้อนจากท้าย
     out: List[Dict[str, str]] = []
-    total = 0
+    total_chars = 0
     for m in reversed(msgs):
-        c = (m.get("content") or "")
-        total += len(c)
-        if total > max_chars:
+        content = m.get("content", "")
+        total_chars += len(content)
+        if total_chars > max_chars:
             break
-        out.append({"role": m.get("role", "user"), "content": c})
+        out.append({"role": m.get("role", "user"), "content": content})
     return list(reversed(out))
 
-def prune_and_maybe_summarize(user_id: str) -> None:
+# ✅ FIXED: แก้ไขฟังก์ชันให้รับ 'summarize_func' ได้
+def prune_and_maybe_summarize(user_id: str, summarize_func: Callable[[str], str]) -> None:
     """
-    ถ้าประวัติเยอะเกิน: สรุปส่วนต้น แล้วคงท้ายไว้ KEEP_TAIL_AFTER_SUM รายการ
+    If history is too long, it summarizes the older part of the conversation
+    and keeps only the most recent messages.
     """
-    from function_calling import summarize_text_with_gpt  # นำเข้าเฉพาะตอนเรียกใช้ เพื่อกันวงวน import
     db = _load()
     b = _get_bucket(db, user_id)
     msgs = b.get("messages", [])
@@ -100,26 +95,30 @@ def prune_and_maybe_summarize(user_id: str) -> None:
     if len(msgs) <= MAX_HISTORY_ITEMS:
         return
 
-    # รวมเป็นข้อความเดียวเพื่อสรุป
-    joined = []
-    for m in msgs[:-KEEP_TAIL_AFTER_SUM]:
-        r = m.get("role", "user")
-        c = (m.get("content") or "").replace("\n", " ").strip()
-        if not c:
-            continue
-        if r == "user":
-            joined.append(f"[ผู้ใช้] {c}")
-        else:
-            joined.append(f"[ผู้ช่วย] {c}")
-    long_text = " ".join(joined).strip()
-    if long_text:
-        prev = (b.get("summary") or "").strip()
-        new_sum = summarize_text_with_gpt(
-            ("สรุปบทสนทนาแบบย่อ กระชับ สำหรับเก็บเป็นบริบทระยะยาว (ภาษาไทย):\n"
-             f"{('[สรุปเดิม] ' + prev) if prev else ''}\n[เนื้อหาใหม่] {long_text}")
-        )
-        b["summary"] = new_sum.strip()
+    print(f"[Memory] User {user_id} has {len(msgs)} messages, pruning...")
 
-    # เก็บท้ายไว้
+    # 1. Prepare text for summarization
+    part_to_summarize = msgs[:-KEEP_TAIL_AFTER_SUM]
+    text_to_summarize = "\n".join(
+        f"[{m.get('role', 'user')}] {m.get('content', '')}"
+        for m in part_to_summarize
+    )
+
+    if not text_to_summarize:
+        return
+
+    # 2. Create the new summary
+    # ✅ ใช้ summarize_func ที่รับเข้ามาโดยตรง ไม่ต้อง import แล้ว
+    previous_summary = b.get("summary", "")
+    prompt_for_summary = (
+        f"{('[สรุปเดิม] ' + previous_summary) if previous_summary else ''}\n"
+        f"[เนื้อหาใหม่ที่จะสรุปต่อ] {text_to_summarize}"
+    )
+    new_summary = summarize_func(prompt_for_summary)
+
+    b["summary"] = new_summary.strip()
+
+    # 3. Keep only the tail end of the messages
     b["messages"] = msgs[-KEEP_TAIL_AFTER_SUM:]
     _save(db)
+    print(f"[Memory] User {user_id} pruned. New summary saved. History now has {len(b['messages'])} messages.")
