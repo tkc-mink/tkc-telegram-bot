@@ -5,7 +5,6 @@ import os
 import json
 from typing import List, Dict, Any, Optional
 
-# ใช้ client และตัวเลือกโมเดลเดียวกับทั้งระบบ
 from utils.openai_client import client, DEFAULT_MODEL, STRONG_MODEL, pick_model
 from utils.weather_utils import get_weather_forecast
 from utils.gold_utils    import get_gold_price
@@ -17,9 +16,10 @@ from utils.serp_utils    import (
     get_crypto_price,
 )
 from utils.bot_profile import adjust_bot_tone, bot_intro
-from utils.prompt_templates import SYSTEM_NO_ECHO  # << เพิ่ม: ห้ามทวนคำถาม
+from utils.prompt_templates import SYSTEM_NO_ECHO  # ห้ามทวนคำถาม
+import re
 
-# ---------- Tools (Function Calling) ----------
+# ---------- Tools ----------
 TOOLS = [
     {
         "type": "function",
@@ -106,30 +106,24 @@ TOOLS = [
     },
 ]
 
-# ---------- บุคลิกของบอท (ยังคงเดิม) ----------
+# ---------- บุคลิกบอท ----------
 SYSTEM_PROMPT = (
-    "คุณคือบอทผู้ช่วยภาษาไทยชื่อ 'ชิบะน้อย' เป็นผู้ชาย แทนตัวเองว่า 'ผม' "
-    "ตอบสุภาพ จริงใจ เป็นกันเอง ไม่ต้องพูดชื่อบอททุกข้อความ ยกเว้นถูกถามชื่อหรือทักครั้งแรก "
-    "ถ้าผู้ใช้ถามชื่อ ให้แนะนำว่า 'ผมชื่อชิบะน้อยนะครับ' "
-    "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้"
+    "คุณเป็นผู้ช่วยภาษาไทย ตอบสั้น กระชับ ตรงประเด็น เป็นมิตร "
+    "ห้ามทวนคำถามหรือคัดลอกคำของผู้ใช้ก่อนตอบ "
+    "อย่าแนะนำตัวเอง เว้นแต่ผู้ใช้ถามชื่อ โดยให้ตอบสั้น ๆ เท่านั้น "
+    "อย่าเสนอหัวข้อ/ทำเมนูเอง ยกเว้นผู้ใช้ร้องขอ 'ขอไอเดีย/ตัวเลือก' ชัดเจน "
+    "หากพบคำถามเกี่ยวกับอากาศ ราคาทอง ข่าว หุ้น น้ำมัน หวย หรือคริปโต ให้เรียกเครื่องมือที่มีให้"
 )
 
-# ---------- ตัวกระจายคำสั่งไปยังฟังก์ชัน Python จริง ----------
+# ---------- dispatch tools ----------
 def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
     try:
         if fname == "get_weather_forecast":
-            # รองรับ lat/lon ถ้ามี
-            return get_weather_forecast(
-                text=args.get("text", ""),
-                lat=args.get("lat"),
-                lon=args.get("lon"),
-            )
+            return get_weather_forecast(text=args.get("text", ""), lat=args.get("lat"), lon=args.get("lon"))
         if fname == "get_gold_price":
             return get_gold_price()
         if fname == "get_news":
-            topic = args.get("topic", "ข่าว")
-            limit = int(args.get("limit", 5) or 5)
-            return get_news(topic, limit=limit)
+            return get_news(args.get("topic", "ข่าว"), limit=int(args.get("limit", 5) or 5))
         if fname == "get_stock_info":
             return get_stock_info(args.get("query", "SET"))
         if fname == "get_oil_price":
@@ -143,21 +137,20 @@ def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
         print(f"[function_dispatch] {fname} error: {e}")
         return "❌ ดึงข้อมูลจากฟังก์ชันไม่สำเร็จ"
 
+# ---------- context helpers ----------
 def _normalize_context(ctx) -> List[Dict[str, str]]:
     if not ctx:
         return []
-    norm: List[Dict[str, str]] = []
-    for item in ctx:
-        if isinstance(item, dict) and "role" in item and "content" in item:
-            norm.append({"role": item["role"], "content": item["content"]})
-        elif isinstance(item, str):
-            norm.append({"role": "user", "content": item})
-    return norm[-5:]  # จำกัดบริบทล่าสุด 5 รายการ
+    out = []
+    for m in ctx:
+        if isinstance(m, dict) and "role" in m and "content" in m:
+            out.append({"role": m["role"], "content": m["content"]})
+        elif isinstance(m, str):
+            out.append({"role": "user", "content": m})
+    return out[-12:]
 
-# ---------- No-Echo Sanitizer (กันหลุดซ้ำ) ----------
-import re
-
-_PREFIX_PATTERNS = [
+# ---------- sanitizer (กันทวน) ----------
+_PREFIX_REGEX = re.compile("|".join([
     r"^\s*รับทราบ[:：-]\s*",
     r"^\s*คุณ\s*ถามว่า[:：-]\s*",
     r"^\s*สรุปคำถาม[:：-]\s*",
@@ -165,134 +158,97 @@ _PREFIX_PATTERNS = [
     r"^\s*คำถามของคุณ[:：-]\s*",
     r"^\s*Question[:：-]\s*",
     r"^\s*You\s+asked[:：-]\s*",
-]
-_PREFIX_REGEX = re.compile("|".join(_PREFIX_PATTERNS), re.IGNORECASE | re.UNICODE)
+]), re.IGNORECASE | re.UNICODE)
 
-def _strip_known_prefixes(text: str) -> str:
-    return _PREFIX_REGEX.sub("", text or "", count=1)
-
-def _looks_like_echo(user_text: str, line: str) -> bool:
-    if not user_text or not line:
-        return False
-
-    def _norm(s: str) -> str:
-        s = re.sub(r"[\"'`“”‘’\s]+", "", s, flags=re.UNICODE)
-        s = re.sub(r"[.。…!?！？]+$", "", s, flags=re.UNICODE)
-        return s.casefold()
-
-    u = _norm(user_text)
-    l = _norm(line)
-    if not u or not l:
-        return False
-
-    if l.startswith(u[: max(1, int(len(u) * 0.85)) ]):
-        return True
-    if re.match(r'^\s*[>"`“‘]+', line):
-        return True
-    return False
+def _strip_prefix(s: str) -> str:
+    return _PREFIX_REGEX.sub("", s or "", count=1)
 
 def _sanitize_no_echo(user_text: str, reply: str) -> str:
     if not reply:
         return reply
-
-    reply = _strip_known_prefixes(reply).lstrip()
+    reply = _strip_prefix(reply).lstrip()
     lines = reply.splitlines()
     if not lines:
         return reply
-
-    if _looks_like_echo(user_text, lines[0]):
+    def _norm(x: str) -> str:
+        import re as _re
+        x = _re.sub(r"[\"'`“”‘’\s]+", "", x, flags=_re.UNICODE)
+        x = _re.sub(r"[.。…!?！？]+$", "", x, flags=_re.UNICODE)
+        return x.casefold()
+    if _norm(lines[0]).startswith(_norm(user_text)[: max(1, int(len(user_text)*0.85)) ]):
         lines = lines[1:]
         if lines:
-            lines[0] = _strip_known_prefixes(lines[0]).lstrip()
+            lines[0] = _strip_prefix(lines[0]).lstrip()
+    return ("\n".join(line.rstrip() for line in lines)).strip() or reply.strip()
 
-    cleaned = "\n".join(line.rstrip() for line in lines).strip()
-    return cleaned or reply.strip()
-
-# ---------- แกนหลักสำหรับตอบ + เรียก tools ----------
+# ---------- core ----------
 def process_with_function_calling(
     user_message: str,
     ctx=None,
+    conv_summary: Optional[str] = None,
     debug: bool = False,
 ) -> str:
     """
-    กลไกหลักสำหรับตอบกลับด้วย LLM + ฟังก์ชันจริง
-    - ปกติใช้โมเดล DEFAULT_MODEL (gpt-5-mini)
-    - ถ้าข้อความยาก/ยาว/มีโค้ด หรือผู้ใช้สั่ง 'ใช้ gpt5' หรือ '/gpt5 ...' จะยกไป STRONG_MODEL (gpt-5)
-    - มี fallback สลับโมเดลอัตโนมัติเมื่อเรียกล้มเหลว
-    - บังคับ No-Echo ด้วย SYSTEM_NO_ECHO เป็น system แรก
+    ตอบด้วย LLM + tools โดยอาศัยบริบท (ctx) และสรุปบทสนทนา (conv_summary)
     """
     try:
         text = user_message or ""
         low = text.casefold()
 
-        # ชื่อ/เริ่มต้นบทสนทนา
         if any(k in low for k in ["ชื่ออะไร", "คุณชื่ออะไร", "คุณคือใคร", "bot ชื่ออะไร", "/start"]):
             return bot_intro()
 
-        # คำสั่งบังคับให้ใช้ gpt-5
         force_model: Optional[str] = None
         if low.startswith("/gpt5 "):
             force_model = STRONG_MODEL
-            text = text.split(" ", 1)[1]  # ตัด prefix ออกก่อนส่งให้โมเดล
+            text = text.split(" ", 1)[1]
         elif "ใช้ gpt5" in low or "use gpt5" in low:
             force_model = STRONG_MODEL
 
-        # เตรียม messages (ใส่ No-Echo เป็น system ตัวแรกเสมอ)
+        # ใส่ No-Echo ก่อน + บุคลิก + บทสรุป (ถ้ามี) + บริบทล่าสุด
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_NO_ECHO},  # ห้ามทวน
-            {"role": "system", "content": SYSTEM_PROMPT},   # บุคลิก/กฎการเรียก tools
+            {"role": "system", "content": SYSTEM_NO_ECHO},
+            {"role": "system", "content": SYSTEM_PROMPT},
         ]
+        if conv_summary:
+            messages.append({"role": "system", "content": f"[บทสรุปก่อนหน้า]\n{conv_summary.strip()}"} )
         if ctx:
             messages.extend(_normalize_context(ctx))
         messages.append({"role": "user", "content": text})
 
-        # เลือกโมเดล (อัตโนมัติหรือบังคับ)
         model = force_model or pick_model(text)
 
-        # รอบแรก: ให้โมเดลตัดสินใจว่าจะเรียก tools หรือไม่
+        # รอบแรก
         try:
             resp = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
+                model=model, messages=messages, tools=TOOLS, tool_choice="auto"
             )
         except Exception:
-            # fallback: ลองอีกโมเดล
             alt = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
             resp = client.chat.completions.create(
-                model=alt,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
+                model=alt, messages=messages, tools=TOOLS, tool_choice="auto"
             )
-            model = alt  # ใช้ตัวที่สำเร็จ
+            model = alt
 
         msg = resp.choices[0].message
 
-        # ถ้าไม่มี tool_calls โมเดลตอบเองได้เลย
+        # ไม่มี tool
         if not getattr(msg, "tool_calls", None):
             answer = (msg.content or "").strip() or "❌ ไม่พบข้อความตอบกลับ"
-            answer = _sanitize_no_echo(text, answer)
-            return adjust_bot_tone(answer)
+            return adjust_bot_tone(_sanitize_no_echo(text, answer))
 
-        # มีการเรียก tool (อาจมากกว่า 1)
+        # มี tool
         tool_calls = msg.tool_calls or []
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
             "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
-                }
+                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                 for tc in tool_calls
             ],
         })
 
-        # รันฟังก์ชัน Python ตามที่โมเดลเรียก แล้วแนบผลลัพธ์กลับเป็น role=tool
-        last_result_text: Optional[str] = None
+        last_result = None
         for tc in tool_calls:
             fname = tc.function.name
             try:
@@ -300,60 +256,39 @@ def process_with_function_calling(
             except Exception:
                 args = {}
             result_text = function_dispatch(fname, args)
-            last_result_text = result_text
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "name": fname,
-                "content": result_text,
-            })
+            last_result = result_text
+            messages.append({"role": "tool", "tool_call_id": tc.id, "name": fname, "content": result_text})
 
-        # รอบสอง: ให้โมเดลสรุปคำตอบจากผลของ tools (ปิด tools เพิ่มเติม)
         try:
-            resp2 = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tool_choice="none",
-            )
+            resp2 = client.chat.completions.create(model=model, messages=messages, tool_choice="none")
         except Exception:
             alt = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
-            resp2 = client.chat.completions.create(
-                model=alt,
-                messages=messages,
-                tool_choice="none",
-            )
+            resp2 = client.chat.completions.create(model=alt, messages=messages, tool_choice="none")
 
-        final_msg = resp2.choices[0].message
-        final_text = (final_msg.content or "").strip()
-        final_text = _sanitize_no_echo(text, final_text if final_text else (last_result_text or ""))
+        final = (resp2.choices[0].message.content or "").strip()
+        final = _sanitize_no_echo(text, final if final else (last_result or ""))
 
         if debug:
             try:
-                print("=== TOOL CONTEXT ===")
-                print(json.dumps(messages, ensure_ascii=False, indent=2))
-                print("=== LLM FINAL ===")
-                print(final_text)
-            except Exception:
-                pass
+                print("=== CTX ===");  print(json.dumps(messages, ensure_ascii=False)[:2000])
+                print("=== FINAL ==="); print(final)
+            except Exception: pass
 
-        return adjust_bot_tone(final_text)
+        return adjust_bot_tone(final)
 
     except Exception as e:
         print(f"[process_with_function_calling] {e}")
         return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
 
-# ---------- ตัวช่วยสรุปข้อความ ----------
+# ---------- สรุปข้อความ ----------
 def summarize_text_with_gpt(text: str) -> str:
     try:
         messages = [
-            {"role": "system", "content": SYSTEM_NO_ECHO},  # ไม่ทวนในงานสรุปเช่นกัน
+            {"role": "system", "content": SYSTEM_NO_ECHO},
             {"role": "system", "content": "ช่วยสรุปเนื้อหานี้ให้สั้น กระชับ เป็นภาษาไทย"},
             {"role": "user", "content": text}
         ]
-        resp = client.chat.completions.create(
-            model=DEFAULT_MODEL,
-            messages=messages
-        )
+        resp = client.chat.completions.create(model=DEFAULT_MODEL, messages=messages)
         msg = resp.choices[0].message
         out = (msg.content or "").strip() or "❌ ไม่พบข้อความสรุป"
         return _sanitize_no_echo(text, out)
