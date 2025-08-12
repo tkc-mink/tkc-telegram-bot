@@ -3,7 +3,7 @@
 """
 Global settings สำหรับ TKC Telegram Bot
 - อ่านค่าได้จาก Environment เพื่อปรับพฤติกรรมได้โดยไม่ต้องแก้โค้ด
-- ค่าเริ่มต้นถูกตั้งให้เหมาะกับ Asia/Bangkok และงานปัจจุบันของบอท
+- ค่าเริ่มต้นเหมาะกับ Asia/Bangkok และงานปัจจุบันของบอท
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ BACKUP_TIME_MINUTE: int = _norm_minute(_getenv_int("BACKUP_TIME_MINUTE", 9))
 
 
 # ========== Telegram Webhook / Payload Limits ==========
-# ใช้ควบคุมลิมิตเพย์โหลดที่ /webhook (main.py จะอ่าน ENV โดยตรง แต่เก็บสำเนาไว้ให้เข้าใจค่าดีฟอลต์)
+# ใช้ควบคุมลิมิตเพย์โหลดที่ /webhook (main.py จะอ่าน ENV ตรง ๆ)
 MAX_PAYLOAD_BYTES: int = _getenv_int("MAX_PAYLOAD_BYTES", 10 * 1024 * 1024)  # 10MB
 
 # ลิมิตไฟล์/เวลาในการดาวน์โหลดไฟล์จาก Telegram (utils/telegram_file_utils ใช้งาน)
@@ -101,6 +101,34 @@ DOC_SUMMARY_MAX_CHUNKS: int = _getenv_int("DOC_SUMMARY_MAX_CHUNKS", 8, 1, 20)
 # ========== OpenAI Model Defaults (อ้างอิง/เอกสาร) ==========
 # โค้ดจริงอ่านจาก utils/openai_client.py แต่ตั้งค่าที่นี่ไว้เป็นเอกภาพของโปรเจกต์
 OPENAI_MODEL_DEFAULT: str = os.getenv("OPENAI_MODEL", "gpt-5-mini")
-OPENAI_MODEL_STRONG: str = os.getenv("OPENAI_MODEL_STRONG", "gpt-5")
-OPENAI_MODEL_VISION: str = os.getenv("OPENAI_MODEL_VISION", "gpt-4o-mini")
-OPENAI_MODEL_IMAGE: str = os.getenv("OPENAI_MODEL_IMAGE", "gpt-image-1")
+OPENAI_MODEL_STRONG: str  = os.getenv("OPENAI_MODEL_STRONG", "gpt-5")
+OPENAI_MODEL_VISION: str  = os.getenv("OPENAI_MODEL_VISION", "gpt-4o-mini")
+OPENAI_MODEL_IMAGE: str   = os.getenv("OPENAI_MODEL_IMAGE", "gpt-image-1")
+
+
+# ===== Optional extras (safe to add) =====
+# เผื่อผู้ใช้ส่งเป็นเอกสารแนวตาราง/รูปแบบ mobile (ยังไม่ได้เปิดใช้ใน handlers/doc.py)
+SUPPORTED_FORMATS_EXTRA: List[str] = [
+    ".csv",   # Comma-Separated Values
+    ".xls",   # Excel format เก่า (ถ้าจะรองรับต้องเพิ่ม extractor)
+    ".heic",  # บางคนส่งภาพจาก iPhone เป็นเอกสาร (Telegram มักแปลงเป็น JPEG ในโหมด photo)
+]
+
+# Path สำหรับ health check (main.py ตั้งไว้แล้วที่ /healthz)
+HEALTHCHECK_PATH: str = os.getenv("HEALTHCHECK_PATH", "/healthz")
+
+def config_summary() -> Dict[str, str]:
+    """สรุปค่าคอนฟิกสำคัญ (ไม่โชว์ secrets) ใช้พิมพ์ตอนเริ่มระบบเพื่อดีบักง่าย ๆ"""
+    return {
+        "DEBUG_MODE": str(DEBUG_MODE),
+        "TIMEZONE": TIMEZONE,
+        "BACKUP_AT": f"{BACKUP_TIME_HOUR:02d}:{BACKUP_TIME_MINUTE:02d}",
+        "MAX_PAYLOAD_BYTES": str(MAX_PAYLOAD_BYTES),
+        "TG_MAX_FILE_BYTES": str(TG_MAX_FILE_BYTES),
+        "TELEGRAM_ALLOWED_UPDATES": ",".join(TELEGRAM_ALLOWED_UPDATES),
+        "OPENAI_MODEL_DEFAULT": OPENAI_MODEL_DEFAULT,
+        "OPENAI_MODEL_STRONG": OPENAI_MODEL_STRONG,
+        "OPENAI_MODEL_VISION": OPENAI_MODEL_VISION,
+        "OPENAI_MODEL_IMAGE": OPENAI_MODEL_IMAGE,
+        "HEALTHCHECK_PATH": HEALTHCHECK_PATH,
+    }
