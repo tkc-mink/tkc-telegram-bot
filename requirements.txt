@@ -14,6 +14,7 @@ lxml==5.2.1
 
 # File/Office Handling
 python-pptx==0.6.23
+Pillow>=10.3.0
 openpyxl==3.1.4
 PyPDF2==3.0.1
 
@@ -26,6 +27,7 @@ google-auth-httplib2==0.2.0
 
 # Schedulers & Time
 APScheduler==3.6.3
+tzlocal>=4.3
 pytz==2024.1
 
 # Utilities
