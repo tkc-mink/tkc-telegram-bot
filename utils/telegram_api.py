@@ -5,12 +5,14 @@ Thin wrapper สำหรับ Telegram Bot API
 - รองรับทั้ง TELEGRAM_BOT_TOKEN และ TELEGRAM_TOKEN
 - Log ดีบักชัดเจน
 - ไม่บังคับ parse_mode โดยดีฟอลต์ (กัน 400 can't parse entities)
+- ✅ บล็อกข้อความแนว "รับทราบ:/คุณถามว่า:/สรุปคำถาม:" ก่อนส่ง (กันบอททวนคำถาม)
 """
 
 from __future__ import annotations
 import os
 import json
 import requests
+import re
 from typing import Any, Dict, Optional
 
 # ===== ENV / CONFIG =====
@@ -59,22 +61,52 @@ def _api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         print("[telegram_api] GET error:", e)
         return None
 
+# ===== No-echo blocker =====
+_NO_ECHO_PREFIXES = re.compile(
+    "|".join([
+        r"^\s*รับทราบ(?:ครับ|ค่ะ|นะ)?[:：-]\s*",
+        r"^\s*คุณ\s*ถามว่า[:：-]\s*",
+        r"^\s*สรุปคำถาม[:：-]\s*",
+        r"^\s*ยืนยันคำถาม[:：-]\s*",
+        r"^\s*คำถามของคุณ[:：-]\s*",
+        r"^\s*Question[:：-]\s*",
+        r"^\s*You\s+asked[:：-]\s*",
+    ]),
+    re.IGNORECASE | re.UNICODE,
+)
+
+def _should_block_no_echo(text: str) -> bool:
+    """
+    บล็อกข้อความทวน/ยืนยัน (มักเป็นบรรทัดเดียว เช่น 'รับทราบ: สวัสดี')
+    - ถ้ามีหลายบรรทัด จะไม่บล็อกเพื่อเลี่ยง false positive
+    """
+    if not text:
+        return False
+    if "\n" in text:
+        return False
+    return bool(_NO_ECHO_PREFIXES.match(text))
+
 # ===== Core helpers =====
 def send_message(
     chat_id: int | str,
     text: str,
     reply_markup: Dict[str, Any] | None = None,
-    parse_mode: Optional[str] = None,           # <-- ทำเป็นออปชัน
+    parse_mode: Optional[str] = None,           # ออปชัน
     disable_web_page_preview: bool = True,
 ):
+    # บล็อกข้อความแนวทวน/ยืนยันก่อนส่ง
+    if _should_block_no_echo(text or ""):
+        _log_debug("BLOCK_NO_ECHO", chat_id=chat_id, preview=(text or "")[:120])
+        return None
+
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
-        "text": text,
+        "text": (text or "")[:4096],  # ตามข้อกำหนด Telegram
         "disable_web_page_preview": disable_web_page_preview,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
-    if parse_mode:                               # <-- ใส่เฉพาะเมื่อผู้เรียกต้องการจริง
+    if parse_mode:                               # ใส่เฉพาะเมื่อผู้เรียกต้องการจริง
         payload["parse_mode"] = parse_mode
     return _api_post("sendMessage", payload)
 
@@ -86,11 +118,11 @@ def send_photo(
     photo_url_or_file_id: str,
     caption: str | None = None,
     reply_markup: Dict[str, Any] | None = None,
-    parse_mode: Optional[str] = None,            # <-- ทำเป็นออปชัน
+    parse_mode: Optional[str] = None,            # ออปชัน
 ):
     payload: Dict[str, Any] = {"chat_id": chat_id, "photo": photo_url_or_file_id}
     if caption is not None:
-        payload["caption"] = caption
+        payload["caption"] = caption[:1024]
     if reply_markup:
         payload["reply_markup"] = reply_markup
     if parse_mode:
@@ -102,13 +134,13 @@ def edit_message_text(
     message_id: int,
     text: str,
     reply_markup: Dict[str, Any] | None = None,
-    parse_mode: Optional[str] = None,            # <-- ทำเป็นออปชัน
+    parse_mode: Optional[str] = None,            # ออปชัน
     disable_web_page_preview: bool = True,
 ):
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "text": text,
+        "text": (text or "")[:4096],
         "disable_web_page_preview": disable_web_page_preview,
     }
     if reply_markup:
