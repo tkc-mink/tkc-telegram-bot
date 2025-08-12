@@ -3,16 +3,19 @@ services:
     name: tkc-telegram-bot
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app
+    # ผูกพอร์ตให้ตรงกับ Render และฟังทุกอินเทอร์เฟซ
+    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT main:app
     envVars:
-      - key: TELEGRAM_TOKEN
+      # ใช้ชื่อแปรเดียวให้ชัดเจน
+      - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENWEATHER_API_KEY
         sync: false
-      - key: WEBHOOK_URL
-        sync: false
-    # optional:
+      # ไม่ได้ใช้ในโค้ดก็เอาออก เพื่อลดความงง (ถ้าจะเก็บไว้ให้ใส่ URL ที่ถูกต้อง)
+      # - key: WEBHOOK_URL
+      #   sync: false
+    # (ทางเลือก) ตั้งเขตเวลา
     # - key: TZ
     #   value: Asia/Bangkok
