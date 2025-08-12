@@ -25,7 +25,9 @@ pytz==2024.1
 python-dotenv==1.0.1
 langdetect==1.0.9
 
+# --- RE-ADDED: Dependencies for Tool Functions ---
+beautifulsoup4==4.12.3
+lxml==5.2.1
+
 # --- REMOVED: Old/Redundant Libraries ---
 # openai==1.43.0 (Replaced by google-generativeai)
-# beautifulsoup4==4.12.3 (No longer needed, Gemini handles search)
-# lxml==5.2.1 (No longer needed)
