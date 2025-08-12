@@ -27,135 +27,92 @@ from utils.context_utils import update_location
 from function_calling import process_with_function_calling
 from utils.bot_profile import bot_intro, adjust_bot_tone
 
-
-# จำว่าแต่ละ user แนะนำตัวไปแล้วหรือยัง (memory แบบง่าย)
-user_intro: dict[int, bool] = {}
-
-
 # ---------- Helpers: No-Echo Sanitizer ----------
 _PREFIX_PATTERNS = [
-    r"^\s*รับทราบ[:：-]\s*",          # รับทราบ:
-    r"^\s*คุณ\s*ถามว่า[:：-]\s*",     # คุณถามว่า:
-    r"^\s*สรุปคำถาม[:：-]\s*",        # สรุปคำถาม:
-    r"^\s*ยืนยันคำถาม[:：-]\s*",      # ยืนยันคำถาม:
-    r"^\s*คำถามของคุณ[:：-]\s*",      # คำถามของคุณ:
+    r"^\s*รับทราบ[:：-]\s*",
+    r"^\s*คุณ\s*ถามว่า[:：-]\s*",
+    r"^\s*สรุปคำถาม[:：-]\s*",
+    r"^\s*ยืนยันคำถาม[:：-]\s*",
+    r"^\s*คำถามของคุณ[:：-]\s*",
     r"^\s*Question[:：-]\s*",
     r"^\s*You\s+asked[:：-]\s*",
 ]
-
 _PREFIX_REGEX = re.compile("|".join(_PREFIX_PATTERNS), re.IGNORECASE | re.UNICODE)
 
 def _strip_known_prefixes(text: str) -> str:
-    # ตัด prefix ที่ชอบทวน/ยืนยันคำถามออกจากหัวข้อความ
     return _PREFIX_REGEX.sub("", text or "", count=1)
 
 def _looks_like_echo(user_text: str, line: str) -> bool:
-    """
-    ตรวจว่าบรรทัดแรกของคำตอบดูเหมือนทวนคำถามหรือไม่:
-    - ขึ้นต้นด้วย "..." หรือ โค้ดบล็อก/quote ของ user_text
-    - มี user_text แบบแทบจะเหมือนกันมาก (ยืดหยุ่นเรื่องช่องว่าง/จุด/เครื่องหมายคำพูด)
-    """
     if not user_text or not line:
         return False
-
-    # ล้างสัญลักษณ์ quote/ช่องว่างพิเศษ เพื่อเทียบความคล้าย
     def _norm(s: str) -> str:
         s = re.sub(r"[\"'`“”‘’\s]+", "", s, flags=re.UNICODE)
         s = re.sub(r"[.。…]+$", "", s, flags=re.UNICODE)
         return s.casefold()
-
     u = _norm(user_text)
     l = _norm(line)
-
     if not u or not l:
         return False
-
-    # ถ้าบรรทัดแรกแทบจะเหมือน user_text (>= 85% ความยาว และ prefix-match) ให้ถือว่า echo
     if l.startswith(u[: max(1, int(len(u) * 0.85)) ]):
         return True
-
-    # หรือกรณี quote แบบขึ้นต้นด้วยเครื่องหมายคำพูด/quote block
     if re.match(r'^\s*[>"`“‘]+', line):
         return True
-
     return False
 
 def _sanitize_no_echo(user_text: str, reply: str) -> str:
-    """
-    ล้างการทวนคำถามออกจากคำตอบ โดย:
-    1) ตัด prefix ที่คุ้นเคย เช่น "รับทราบ:" / "คุณถามว่า:"
-    2) ถ้าบรรทัดแรกคือ echo ของ user_text ให้ตัดทิ้ง
-    3) เก็บบรรทัดถัดไปเป็นคำตอบจริง
-    """
     if not reply:
         return reply
-
-    # ตัด prefix รูปแบบต่าง ๆ
     reply = _strip_known_prefixes(reply).lstrip()
-
-    # แยกบรรทัด
     lines = reply.splitlines()
     if not lines:
         return reply
-
-    # ถ้าบรรทัดแรกดูเป็นการทวน ให้ทิ้งบรรทัดแรก
     if _looks_like_echo(user_text, lines[0]):
         lines = lines[1:]
-        # ตัด prefix อีกรอบเผื่อบรรทัดใหม่ยังมี
         if lines:
             lines[0] = _strip_known_prefixes(lines[0]).lstrip()
-
-    # ประกอบคืน (ลบช่องว่างหัว/ท้าย)
     cleaned = "\n".join(line.rstrip() for line in lines).strip()
     return cleaned or reply.strip()
-
 
 # -------------------------------------------------
 
 def handle_message(data: Dict[str, Any]) -> None:
     chat_id = None
     try:
-        # รองรับทั้ง message และ edited_message (กันบางเคสที่ Telegram ส่งมา)
+        # รองรับทั้ง message และ edited_message
         msg: Dict[str, Any] = data.get("message") or data.get("edited_message") or {}
         chat = msg.get("chat") or {}
         chat_id = chat.get("id")
         if chat_id is None:
             return
 
-        # ดึงข้อความจาก text/caption (ถ้ามี)
+        # ดึงข้อความจาก text/caption
         user_text: str = (msg.get("caption") or msg.get("text") or "").strip()
         user_text_low = user_text.casefold()
 
-        # 1) ไฟล์เอกสาร -> ให้ handler doc จัดการ
+        # 1) ไฟล์เอกสาร
         if msg.get("document"):
             print("[MAIN_HANDLER] dispatch: document")
             handle_doc(chat_id, msg)
             return
 
-        # 2) ตำแหน่งที่ตั้ง
+        # 2) ตำแหน่ง
         if msg.get("location"):
             print("[MAIN_HANDLER] dispatch: location")
             _handle_location_message(chat_id, msg)
             return
 
-        # 3) รูปภาพ/สื่อ
+        # 3) สื่อ
         if msg.get("photo") or msg.get("sticker") or msg.get("video") or msg.get("animation"):
             print("[MAIN_HANDLER] dispatch: media")
             handle_image(chat_id, msg)
             return
 
-        # 4) ไม่มีข้อความและไม่มีสื่อ -> แจ้งช่วยเหลือ
+        # 4) ไม่มีข้อความ/สื่อ
         if not user_text:
             tg_send_message(chat_id, "⚠️ กรุณาพิมพ์ข้อความ ส่งรูป หรือใช้ /help")
             return
 
-        # == INTRO LOGIC ==
-        intro_needed = False
-        if user_text_low.startswith("/start") or not user_intro.get(chat_id):
-            intro_needed = True
-            user_intro[chat_id] = True  # จดว่าแนะนำตัวแล้ว
-
-        # 5) Dispatch ตามคำสั่ง/คีย์เวิร์ด
+        # 5) คำสั่ง
         if user_text_low.startswith("/my_history"):
             print("[MAIN_HANDLER] dispatch: /my_history")
             handle_history(chat_id, user_text)
@@ -210,8 +167,8 @@ def handle_message(data: Dict[str, Any]) -> None:
 
         elif user_text_low.startswith("/start") or user_text_low.startswith("/help"):
             print("[MAIN_HANDLER] dispatch: /start|/help")
-            if intro_needed:
-                tg_send_message(chat_id, bot_intro())
+            # แนะนำตัว "เฉพาะตอนสั่ง /start หรือ /help"
+            tg_send_message(chat_id, bot_intro())
             _send_help(chat_id)
 
         elif "ชื่ออะไร" in user_text_low or "คุณคือใคร" in user_text_low:
@@ -224,17 +181,11 @@ def handle_message(data: Dict[str, Any]) -> None:
             handle_image(chat_id, pseudo_msg)
 
         else:
-            # 6) ตอบแบบ AI/Function calling
+            # 6) AI/Function calling — ไม่ทวน, ไม่แนะนำตัว
             print("[MAIN_HANDLER] dispatch: function_calling")
-            reply = process_with_function_calling(user_text)  # ภายในควรเรียก no-echo system แล้ว
-            # ป้องกันเผื่อยังมี echo หลุดออกมา
+            reply = process_with_function_calling(user_text)
             reply = _sanitize_no_echo(user_text, reply)
-
-            if intro_needed:
-                reply = bot_intro() + "\n" + adjust_bot_tone(reply)
-            else:
-                reply = adjust_bot_tone(reply)
-
+            reply = adjust_bot_tone(reply)
             tg_send_message(chat_id, reply)
 
     except Exception as e:
@@ -246,7 +197,6 @@ def handle_message(data: Dict[str, Any]) -> None:
         print("[MAIN_HANDLER ERROR]")
         print(traceback.format_exc())
 
-
 def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
     loc = msg.get("location", {})
     lat, lon = loc.get("latitude"), loc.get("longitude")
@@ -255,7 +205,6 @@ def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
         tg_send_message(chat_id, "✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย (/weather)")
     else:
         tg_send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
-
 
 def _send_help(chat_id: int) -> None:
     tg_send_message(
