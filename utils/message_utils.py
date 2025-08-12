@@ -6,12 +6,14 @@ Thin wrapper ที่เข้ากับโค้ดเดิม แต่ใ
 - มี get_telegram_token() แบบ public เพื่อความเข้ากันได้กับโค้ดเดิม
 - รองรับ parse_mode ("HTML" / "Markdown" / "MarkdownV2") อย่างถูกต้อง
 - ไม่ raise error ถ้า token ไม่มี (log แล้ว return เฉย ๆ)
+- ✅ บล็อคข้อความแนว "รับทราบ:/คุณถามว่า:/สรุปคำถาม:" ก่อนส่ง (กันบอททวนคำถาม)
 """
 
 from __future__ import annotations
 from typing import Optional, Dict, Any
 import os
 import json
+import re
 
 # ฟังก์ชันระดับล่างจาก telegram_api (มี log ดีบักให้แล้ว)
 from utils.telegram_api import (
@@ -21,7 +23,6 @@ from utils.telegram_api import (
 from utils.telegram_api import _api_post  # ใช้เมื่อจำเป็นต้องระบุพารามิเตอร์เอง
 
 ALLOWED_PARSE = {"HTML", "Markdown", "MarkdownV2"}
-
 
 # ===== Token helpers =====
 def get_telegram_token() -> str:
@@ -38,10 +39,33 @@ def get_telegram_token() -> str:
         print("[message_utils] WARNING: Telegram token not set in TELEGRAM_BOT_TOKEN/TELEGRAM_TOKEN")
     return tok
 
-
 def _log(tag: str, **kw):
     print(f"[message_utils] {tag} :: " + json.dumps(kw, ensure_ascii=False))
 
+# ===== No-echo blocker (กันข้อความทวน/ยืนยันคำถาม) =====
+_NO_ECHO_PREFIXES = re.compile(
+    "|".join([
+        r"^\s*รับทราบ(?:ครับ|ค่ะ|นะ)?[:：-]\s*",
+        r"^\s*คุณ\s*ถามว่า[:：-]\s*",
+        r"^\s*สรุปคำถาม[:：-]\s*",
+        r"^\s*ยืนยันคำถาม[:：-]\s*",
+        r"^\s*คำถามของคุณ[:：-]\s*",
+        r"^\s*Question[:：-]\s*",
+        r"^\s*You\s+asked[:：-]\s*",
+    ]),
+    re.IGNORECASE | re.UNICODE,
+)
+
+def _should_block_no_echo(text: str) -> bool:
+    """
+    บล็อคข้อความที่ขึ้นต้นด้วย pattern การทวน/ยืนยันคำถาม
+    - กัน false positive โดยบล็อคเฉพาะข้อความที่ไม่มีบรรทัดใหม่ (ส่วนใหญ่เป็น ack สั้น ๆ)
+    """
+    if not text:
+        return False
+    if "\n" in text:  # ข้อความหลายบรรทัดมักเป็นคำตอบจริง
+        return False
+    return bool(_NO_ECHO_PREFIXES.match(text))
 
 # ===== High-level senders =====
 def send_message(
@@ -54,10 +78,15 @@ def send_message(
     - จำกัดความยาวที่ 4096 ตัวอักษร
     - ถ้าไม่ระบุ parse_mode หรือเป็น "HTML" จะใช้ tg_send_message (ซึ่ง default เป็น HTML)
     - ถ้าระบุ parse_mode อื่น จะเรียกผ่าน _api_post เพื่อส่งค่า parse_mode ให้ถูกต้อง
+    - ✅ บล็อคข้อความแนวทวน/ยืนยันก่อนส่ง
     """
     token = get_telegram_token()
     if not token:
         _log("WARN_NO_TOKEN", chat_id=chat_id, text_preview=(text or "")[:80])
+        return
+
+    if _should_block_no_echo(text or ""):
+        _log("BLOCK_NO_ECHO", chat_id=chat_id, blocked_preview=(text or "")[:120])
         return
 
     safe_text = (text or "")[:4096]
@@ -75,7 +104,6 @@ def send_message(
             tg_send_message(chat_id, safe_text, reply_markup=None)
     except Exception as e:
         _log("ERROR_SEND_MESSAGE", err=str(e))
-
 
 def send_photo(
     chat_id: int | str,
@@ -96,7 +124,6 @@ def send_photo(
         tg_send_photo(chat_id, photo_url, caption=cap)
     except Exception as e:
         _log("ERROR_SEND_PHOTO", err=str(e))
-
 
 def ask_for_location(
     chat_id: int | str,
