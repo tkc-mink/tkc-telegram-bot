@@ -2,33 +2,30 @@
 flask==3.0.3
 gunicorn==21.2.0
 
-# AI & NLP
-openai==1.43.0
-langdetect==1.0.9
+# --- NEW: Google AI (Gemini) ---
+google-generativeai==0.7.2
 
-# HTTP Requests & Parsing
-requests==2.32.3
-httpx==0.27.2
-beautifulsoup4==4.12.3
-lxml==5.2.1
-
-# File/Office Handling
-python-pptx==0.6.23
+# --- UPGRADED: Image & File Handling ---
 Pillow>=10.3.0
+python-pptx==0.6.23
 openpyxl==3.1.4
 PyPDF2==3.0.1
 
-# Google API
+# --- EXISTING: HTTP, Google Auth & Utilities ---
+requests==2.32.3
+httpx==0.27.2
 google-api-python-client==2.131.0
 google-api-core==2.15.0
 google-auth==2.29.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
-
-# Schedulers & Time
 APScheduler==3.6.3
 tzlocal>=4.3
 pytz==2024.1
-
-# Utilities
 python-dotenv==1.0.1
+langdetect==1.0.9
+
+# --- REMOVED: Old/Redundant Libraries ---
+# openai==1.43.0 (Replaced by google-generativeai)
+# beautifulsoup4==4.12.3 (No longer needed, Gemini handles search)
+# lxml==5.2.1 (No longer needed)
