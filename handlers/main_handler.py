@@ -20,14 +20,13 @@ from handlers.faq           import handle_faq
 from handlers.backup_status import handle_backup_status
 
 # ===== Handler Imports (ส่วนที่ 2: อัปเกรดเป็น Gemini) =====
-# from handlers.search     import handle_Google Search, handle_google_image # << ปิดการใช้งานของเก่า
-from handlers.search        import handle_gemini_search, handle_gemini_image_generation # ✅ เปิดใช้ Gemini
-from handlers.image         import handle_image # (สำหรับวิเคราะห์ภาพที่ผู้ใช้ส่งมา)
+from handlers.search        import handle_gemini_search, handle_gemini_image_generation
+from handlers.image         import handle_image
 
 # ===== Utility Imports =====
 from utils.telegram_api import send_message as tg_send_message
 from utils.context_utils import update_location
-from function_calling import process_with_function_calling # (ส่วนนี้อาจจะต้องปรับไปใช้ Gemini ในอนาคต)
+from function_calling import process_with_function_calling, summarize_text_with_gpt
 from utils.bot_profile import bot_intro, adjust_bot_tone
 
 # ===== Memory Layer =====
@@ -38,7 +37,46 @@ from utils.memory_store import (
     prune_and_maybe_summarize,
 )
 
-# ... (ส่วน _sanitize_no_echo ของคุณเหมือนเดิม ไม่ต้องเปลี่ยนแปลง) ...
+##### START: ส่วนของ No-Echo Sanitizer ที่หายไป #####
+_PREFIX_PATTERNS = [
+    r"^\s*รับทราบ[:：-]\s*",
+    r"^\s*คุณ\s*ถามว่า[:：-]\s*",
+    r"^\s*สรุปคำถาม[:：-]\s*",
+    r"^\s*ยืนยันคำถาม[:：-]\s*",
+    r"^\s*คำถามของคุณ[:：-]\s*",
+    r"^\s*Question[:：-]\s*",
+    r"^\s*You\s+asked[:：-]\s*",
+]
+_PREFIX_REGEX = re.compile("|".join(_PREFIX_PATTERNS), re.IGNORECASE | re.UNICODE)
+
+def _strip_known_prefixes(text: str) -> str:
+    return _PREFIX_REGEX.sub("", text or "", count=1)
+
+def _looks_like_echo(user_text: str, line: str) -> bool:
+    if not user_text or not line:
+        return False
+    def _norm(s: str) -> str:
+        s = re.sub(r"[\"'`“”‘’\s]+", "", s, flags=re.UNICODE)
+        s = re.sub(r"[.。…]+$", "", s, flags=re.UNICODE)
+        return s.casefold()
+    u = _norm(user_text); l = _norm(line)
+    if not u or not l:
+        return False
+    if l.startswith(u[: max(1, int(len(u) * 0.85)) ]): return True
+    if re.match(r'^\s*[>"`“‘]+', line): return True
+    return False
+
+def _sanitize_no_echo(user_text: str, reply: str) -> str:
+    if not reply: return reply
+    reply = _strip_known_prefixes(reply).lstrip()
+    lines = reply.splitlines()
+    if not lines: return reply
+    if _looks_like_echo(user_text, lines[0]):
+        lines = lines[1:]
+        if lines: lines[0] = _strip_known_prefixes(lines[0]).lstrip()
+    return ("\n".join(line.rstrip() for line in lines)).strip() or reply.strip()
+##### END: ส่วนของ No-Echo Sanitizer ที่หายไป #####
+
 
 # -------------------------------------------------
 
@@ -70,7 +108,7 @@ def handle_message(data: Dict[str, Any]) -> None:
         # 3) สื่อ (ภาพ/วิดีโอที่ผู้ใช้ส่งมาเพื่อ "วิเคราะห์")
         if msg.get("photo") or msg.get("sticker") or msg.get("video") or msg.get("animation"):
             print("[MAIN_HANDLER] dispatch: media analysis")
-            handle_image(chat_id, msg) # ใช้ handler เดิมสำหรับวิเคราะห์ภาพที่ส่งมา
+            handle_image(chat_id, msg)
             return
 
         # 4) ข้อความว่าง
@@ -100,19 +138,15 @@ def handle_message(data: Dict[str, Any]) -> None:
         elif user_text_low.startswith("/weather") or "อากาศ" in user_text_low:
             print("[MAIN_HANDLER] dispatch: /weather"); handle_weather(chat_id, user_text)
 
-        # =================================================================
-        #  ✅✅✅ --- SWITCH TO GEMINI --- ✅✅✅
-        # =================================================================
         elif user_text_low.startswith("/search") or user_text_low.startswith("ค้นหา"):
             print("[MAIN_HANDLER] dispatch: /search (GEMINI)")
-            handle_gemini_search(chat_id, user_text) # << เปลี่ยนมาเรียก Gemini Search
+            handle_gemini_search(chat_id, user_text)
 
         elif (user_text_low.startswith("/image") or
-              user_text_low.startswith("/imagine") or # เพิ่มคำสั่ง /imagine
+              user_text_low.startswith("/imagine") or
               user_text_low.startswith("สร้างภาพ")):
             print("[MAIN_HANDLER] dispatch: /image (GEMINI)")
-            handle_gemini_image_generation(chat_id, user_text) # << เปลี่ยนมาเรียก Gemini Image Gen
-        # =================================================================
+            handle_gemini_image_generation(chat_id, user_text)
 
         elif user_text_low.startswith("/review"):
             print("[MAIN_HANDLER] dispatch: /review"); handle_review(chat_id, user_text)
@@ -136,18 +170,24 @@ def handle_message(data: Dict[str, Any]) -> None:
             tg_send_message(chat_id, bot_intro())
 
         else:
-            # 6) การตอบทั่วไป (ส่วนนี้ยังใช้ Function Calling เดิม)
-            # ในอนาคตเราสามารถอัปเกรด process_with_function_calling ให้เรียกใช้ Gemini ได้เช่นกัน
-            print("[MAIN_HANDLER] dispatch: function_calling (using old model for now)")
+            # 6) ตอบแบบมี "บริบท" ด้วย Function Calling
+            print("[MAIN_HANDLER] dispatch: function_calling")
+
             ctx = get_recent_context(user_id)
             summary = get_summary(user_id)
+            
+            # เรียกใช้ Function Calling ที่อัปเกรดเป็น Gemini แล้ว
             reply = process_with_function_calling(user_text, ctx=ctx, conv_summary=summary)
+
+            # ปรับสำนวน + กันทวน (ส่วนนี้จะยังอยู่ แต่ถ้า Gemini ไม่ทวน ก็จะไม่ทำงาน)
             reply = _sanitize_no_echo(user_text, reply)
             reply = adjust_bot_tone(reply)
+
             tg_send_message(chat_id, reply)
+
             append_message(user_id, "user", user_text)
             append_message(user_id, "assistant", reply)
-            prune_and_maybe_summarize(user_id)
+            prune_and_maybe_summarize(user_id, summarize_func=summarize_text_with_gpt)
 
     except Exception as e:
         if chat_id is not None:
@@ -155,9 +195,20 @@ def handle_message(data: Dict[str, Any]) -> None:
             except Exception: pass
         print("[MAIN_HANDLER ERROR]"); print(traceback.format_exc())
 
-# ... (ฟังก์ชัน _handle_location_message และ _send_help ของคุณเหมือนเดิม) ...
+
+def _handle_location_message(chat_id: int, msg: Dict[str, Any]) -> None:
+    # ... (เนื้อหาฟังก์ชันนี้เหมือนเดิม) ...
+    loc = msg.get("location", {})
+    lat, lon = loc.get("latitude"), loc.get("longitude")
+    if lat is not None and lon is not None:
+        update_location(str(chat_id), lat, lon)
+        tg_send_message(chat_id, "✅ บันทึกตำแหน่งแล้ว! ลองถามอากาศอีกครั้งได้เลย (/weather)")
+    else:
+        tg_send_message(chat_id, "❌ ตำแหน่งไม่ถูกต้อง กรุณาส่งใหม่")
+
 
 def _send_help(chat_id: int) -> None:
+    # ... (เนื้อหาฟังก์ชันนี้เหมือนเดิม) ...
     tg_send_message(
         chat_id,
         "คำสั่งที่ใช้ได้:\n"
