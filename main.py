@@ -9,6 +9,7 @@ from flask import Flask, request, jsonify, abort
 
 from handlers.main_handler import handle_message
 from utils.backup_utils import restore_all, setup_backup_scheduler
+from utils.telegram_api import send_message   # ✅ เพิ่มเพื่อยิงตอบโดยตรง
 from settings import SUPPORTED_FORMATS
 
 app = Flask(__name__)
@@ -38,24 +39,23 @@ _safe_init()
 # ======================
 # Routes
 # ======================
-@app.route("/")
+@app.get("/")
 def index():
     return "✅ TKC Telegram Bot is running!"
 
-@app.route("/healthz")
+@app.get("/healthz")
 def healthz():
-    # เอาไว้ให้ Render health checks
     return jsonify({"status": "healthy"}), 200
 
-@app.route("/ping")
+@app.get("/ping")
 def ping():
     return "pong", 200
 
-@app.route("/docs", methods=["GET"])
+@app.get("/docs")
 def docs():
     return jsonify({"supported_formats": SUPPORTED_FORMATS})
 
-@app.route("/webhook", methods=["POST"])
+@app.post("/webhook")
 def webhook():
     # 1) ตรวจ secret token (ถ้าตั้งไว้)
     if TELEGRAM_SECRET_TOKEN:
@@ -70,40 +70,48 @@ def webhook():
         log_event(f"❌ Payload too large: {len(raw)} bytes")
         abort(413)
 
-    # 3) parse JSON อย่างปลอดภัย
-    data = None
+    # 3) parse JSON
     try:
-        # Flask จะ parse ให้แล้วใน request.get_json แต่เราทำเองเพื่อจับ error ละเอียดขึ้น
         text = raw.decode("utf-8") if raw else ""
         data = json.loads(text) if text else (request.get_json(silent=True) or {})
     except Exception:
-        # fallback
         data = request.get_json(silent=True) or {}
 
-    try:
-        log_event(f"Received webhook: {request.method} {request.path}")
-        if data:
-            # log เฉพาะบางส่วน กัน log ยาวเกิน
-            snip = str(data)
-            if len(snip) > 500:
-                snip = snip[:500] + " ..."
-            log_event(f"Telegram Data: {snip}")
+    log_event(f"Received webhook: {request.method} {request.path}")
+    if not data:
+        log_event("⚠️ No JSON data received from Telegram.")
+        return jsonify({"status": "ok"}), 200
 
-            try:
-                handle_message(data)  # ฟังก์ชันหลักจัดการ update จาก Telegram
-            except Exception as e:
-                log_event(f"❌ Handler error: {e}")
-                log_event(traceback.format_exc())
-        else:
-            log_event("⚠️ No JSON data received from Telegram.")
+    # --- LOG ตัว update (ตัดยาวเกิน) ---
+    snip = str(data)
+    if len(snip) > 1000:
+        snip = snip[:1000] + " ..."
+    log_event(f"Telegram Data: {snip}")
+
+    # --- ตอบกลับทันทีแบบ safe เพื่อพิสูจน์ทางเดิน ---
+    try:
+        if "message" in data:
+            m = data["message"]
+            chat_id = m["chat"]["id"]
+            text_in = (m.get("text") or "").strip()
+            if text_in.startswith("/start"):
+                send_message(chat_id, "พร้อมทำงานครับ ✅ (ตอบจาก main.py)\nพิมพ์ /ping เพื่อตรวจ หรือพิมพ์อะไรก็ได้")
+            elif text_in.startswith("/ping"):
+                send_message(chat_id, "pong (จาก main.py)")
+            elif text_in:
+                send_message(chat_id, f"รับทราบ: {text_in}")
     except Exception as e:
-        log_event(f"❌ Webhook error: {e}")
-        log_event(traceback.format_exc())
+        log_event(f"❌ Direct reply error: {e}\n{traceback.format_exc()}")
+
+    # --- ส่งต่อให้ handler หลักของคุณตามเดิม ---
+    try:
+        handle_message(data)
+    except Exception as e:
+        log_event(f"❌ Handler error: {e}\n{traceback.format_exc()}")
 
     return jsonify({"status": "ok"}), 200
 
 
-# ---- Local dev only (บน Render ใช้ gunicorn/wsgi) ----
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
