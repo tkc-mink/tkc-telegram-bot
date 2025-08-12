@@ -3,19 +3,42 @@ services:
     name: tkc-telegram-bot
     env: python
     buildCommand: pip install -r requirements.txt
-    # ผูกพอร์ตให้ตรงกับ Render และฟังทุกอินเทอร์เฟซ
     startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT main:app
+
+    # ให้ Render เช็กสุขภาพที่ /healthz (มีใน main.py แล้ว)
+    healthCheckPath: /healthz
+    autoDeploy: true
+
     envVars:
-      # ใช้ชื่อแปรเดียวให้ชัดเจน
-      - key: TELEGRAM_BOT_TOKEN
+      # --- จำเป็น ---
+      - key: TELEGRAM_BOT_TOKEN     # โทเคนบอท Telegram
         sync: false
-      - key: OPENAI_API_KEY
+      - key: OPENAI_API_KEY         # คีย์ OpenAI
         sync: false
+
+      # --- โมเดลเริ่มต้น + ตัวแรง สำหรับสลับอัตโนมัติ ---
+      - key: OPENAI_MODEL
+        value: gpt-5-mini
+      - key: OPENAI_MODEL_STRONG
+        value: gpt-5
+
+      # --- services ที่คุณใช้จริง ---
       - key: OPENWEATHER_API_KEY
         sync: false
-      # ไม่ได้ใช้ในโค้ดก็เอาออก เพื่อลดความงง (ถ้าจะเก็บไว้ให้ใส่ URL ที่ถูกต้อง)
-      # - key: WEBHOOK_URL
-      #   sync: false
-    # (ทางเลือก) ตั้งเขตเวลา
-    # - key: TZ
-    #   value: Asia/Bangkok
+
+      # --- ปรับแต่ง/ความเสถียร ---
+      - key: TG_API_TIMEOUT         # timeout เรียก Telegram (วินาที)
+        value: "10"
+      - key: OPENAI_TIMEOUT_SEC     # timeout เรียก OpenAI (วินาที)
+        value: "30"
+      - key: OPENAI_MAX_RETRIES     # จำนวน retry OpenAI
+        value: "3"
+      - key: MAX_PAYLOAD_BYTES      # รับ payload webhook สูงสุด (10MB)
+        value: "10485760"
+      - key: TZ                     # โซนเวลา (แสดง log สวยงาม)
+        value: Asia/Bangkok
+
+      # --- ใช้ถ้าต้องการล็อก webhook ด้วย secret token ---
+      # ตั้งค่าให้ตรงกับตอน setWebhook?secret_token=...
+      - key: TELEGRAM_SECRET_TOKEN
+        sync: false
