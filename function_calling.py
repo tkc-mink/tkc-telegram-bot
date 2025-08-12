@@ -17,7 +17,7 @@ from utils.serp_utils    import (
     get_crypto_price,
 )
 from utils.bot_profile import adjust_bot_tone, bot_intro
-
+from utils.prompt_templates import SYSTEM_NO_ECHO  # << เพิ่ม: ห้ามทวนคำถาม
 
 # ---------- Tools (Function Calling) ----------
 TOOLS = [
@@ -29,7 +29,9 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "ข้อความที่ผู้ใช้พิมพ์"}
+                    "text": {"type": "string", "description": "ข้อความที่ผู้ใช้พิมพ์"},
+                    "lat":  {"type": "number", "description": "ละติจูด (ถ้ามี)", "nullable": True},
+                    "lon":  {"type": "number", "description": "ลองจิจูด (ถ้ามี)", "nullable": True},
                 },
                 "required": ["text"]
             }
@@ -40,7 +42,7 @@ TOOLS = [
         "function": {
             "name": "get_gold_price",
             "description": "ดูราคาทองคำประจำวัน",
-            "parameters": {"type": "object", "properties": {}}
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False}
         }
     },
     {
@@ -51,7 +53,8 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "topic": {"type": "string", "description": "หัวข้อข่าว"}
+                    "topic": {"type": "string", "description": "หัวข้อข่าว"},
+                    "limit": {"type": "integer", "description": "จำนวนข่าว (1-10)", "default": 5}
                 },
                 "required": ["topic"]
             }
@@ -65,7 +68,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "ชื่อหุ้น หรือ SET"}
+                    "query": {"type": "string", "description": "ชื่อหุ้น หรือ SET หรือสัญลักษณ์เช่น PTT.BK"}
                 },
                 "required": ["query"]
             }
@@ -76,7 +79,7 @@ TOOLS = [
         "function": {
             "name": "get_oil_price",
             "description": "ดูราคาน้ำมันวันนี้",
-            "parameters": {"type": "object", "properties": {}}
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False}
         }
     },
     {
@@ -84,7 +87,7 @@ TOOLS = [
         "function": {
             "name": "get_lottery_result",
             "description": "ผลสลากกินแบ่งรัฐบาลล่าสุด",
-            "parameters": {"type": "object", "properties": {}}
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False}
         }
     },
     {
@@ -95,7 +98,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "coin": {"type": "string", "description": "ชื่อเหรียญ"}
+                    "coin": {"type": "string", "description": "ชื่อเหรียญ เช่น BTC, ETH, SOL"}
                 },
                 "required": ["coin"]
             }
@@ -103,6 +106,7 @@ TOOLS = [
     },
 ]
 
+# ---------- บุคลิกของบอท (ยังคงเดิม) ----------
 SYSTEM_PROMPT = (
     "คุณคือบอทผู้ช่วยภาษาไทยชื่อ 'ชิบะน้อย' เป็นผู้ชาย แทนตัวเองว่า 'ผม' "
     "ตอบสุภาพ จริงใจ เป็นกันเอง ไม่ต้องพูดชื่อบอททุกข้อความ ยกเว้นถูกถามชื่อหรือทักครั้งแรก "
@@ -110,29 +114,34 @@ SYSTEM_PROMPT = (
     "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้"
 )
 
-
 # ---------- ตัวกระจายคำสั่งไปยังฟังก์ชัน Python จริง ----------
 def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
     try:
         if fname == "get_weather_forecast":
-            return get_weather_forecast(text=args.get("text", ""))
+            # รองรับ lat/lon ถ้ามี
+            return get_weather_forecast(
+                text=args.get("text", ""),
+                lat=args.get("lat"),
+                lon=args.get("lon"),
+            )
         if fname == "get_gold_price":
             return get_gold_price()
         if fname == "get_news":
-            return get_news(args.get("topic", "ข่าว"))
+            topic = args.get("topic", "ข่าว")
+            limit = int(args.get("limit", 5) or 5)
+            return get_news(topic, limit=limit)
         if fname == "get_stock_info":
-            return get_stock_info(args.get("query", "หุ้น"))
+            return get_stock_info(args.get("query", "SET"))
         if fname == "get_oil_price":
             return get_oil_price()
         if fname == "get_lottery_result":
             return get_lottery_result()
         if fname == "get_crypto_price":
-            return get_crypto_price(args.get("coin", "bitcoin"))
+            return get_crypto_price(args.get("coin", "BTC"))
         return "❌ ฟังก์ชันนี้ยังไม่รองรับในระบบ"
     except Exception as e:
         print(f"[function_dispatch] {fname} error: {e}")
         return "❌ ดึงข้อมูลจากฟังก์ชันไม่สำเร็จ"
-
 
 def _normalize_context(ctx) -> List[Dict[str, str]]:
     if not ctx:
@@ -145,6 +154,59 @@ def _normalize_context(ctx) -> List[Dict[str, str]]:
             norm.append({"role": "user", "content": item})
     return norm[-5:]  # จำกัดบริบทล่าสุด 5 รายการ
 
+# ---------- No-Echo Sanitizer (กันหลุดซ้ำ) ----------
+import re
+
+_PREFIX_PATTERNS = [
+    r"^\s*รับทราบ[:：-]\s*",
+    r"^\s*คุณ\s*ถามว่า[:：-]\s*",
+    r"^\s*สรุปคำถาม[:：-]\s*",
+    r"^\s*ยืนยันคำถาม[:：-]\s*",
+    r"^\s*คำถามของคุณ[:：-]\s*",
+    r"^\s*Question[:：-]\s*",
+    r"^\s*You\s+asked[:：-]\s*",
+]
+_PREFIX_REGEX = re.compile("|".join(_PREFIX_PATTERNS), re.IGNORECASE | re.UNICODE)
+
+def _strip_known_prefixes(text: str) -> str:
+    return _PREFIX_REGEX.sub("", text or "", count=1)
+
+def _looks_like_echo(user_text: str, line: str) -> bool:
+    if not user_text or not line:
+        return False
+
+    def _norm(s: str) -> str:
+        s = re.sub(r"[\"'`“”‘’\s]+", "", s, flags=re.UNICODE)
+        s = re.sub(r"[.。…!?！？]+$", "", s, flags=re.UNICODE)
+        return s.casefold()
+
+    u = _norm(user_text)
+    l = _norm(line)
+    if not u or not l:
+        return False
+
+    if l.startswith(u[: max(1, int(len(u) * 0.85)) ]):
+        return True
+    if re.match(r'^\s*[>"`“‘]+', line):
+        return True
+    return False
+
+def _sanitize_no_echo(user_text: str, reply: str) -> str:
+    if not reply:
+        return reply
+
+    reply = _strip_known_prefixes(reply).lstrip()
+    lines = reply.splitlines()
+    if not lines:
+        return reply
+
+    if _looks_like_echo(user_text, lines[0]):
+        lines = lines[1:]
+        if lines:
+            lines[0] = _strip_known_prefixes(lines[0]).lstrip()
+
+    cleaned = "\n".join(line.rstrip() for line in lines).strip()
+    return cleaned or reply.strip()
 
 # ---------- แกนหลักสำหรับตอบ + เรียก tools ----------
 def process_with_function_calling(
@@ -157,10 +219,11 @@ def process_with_function_calling(
     - ปกติใช้โมเดล DEFAULT_MODEL (gpt-5-mini)
     - ถ้าข้อความยาก/ยาว/มีโค้ด หรือผู้ใช้สั่ง 'ใช้ gpt5' หรือ '/gpt5 ...' จะยกไป STRONG_MODEL (gpt-5)
     - มี fallback สลับโมเดลอัตโนมัติเมื่อเรียกล้มเหลว
+    - บังคับ No-Echo ด้วย SYSTEM_NO_ECHO เป็น system แรก
     """
     try:
         text = user_message or ""
-        low = text.lower()
+        low = text.casefold()
 
         # ชื่อ/เริ่มต้นบทสนทนา
         if any(k in low for k in ["ชื่ออะไร", "คุณชื่ออะไร", "คุณคือใคร", "bot ชื่ออะไร", "/start"]):
@@ -174,8 +237,11 @@ def process_with_function_calling(
         elif "ใช้ gpt5" in low or "use gpt5" in low:
             force_model = STRONG_MODEL
 
-        # เตรียม messages
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # เตรียม messages (ใส่ No-Echo เป็น system ตัวแรกเสมอ)
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": SYSTEM_NO_ECHO},  # ห้ามทวน
+            {"role": "system", "content": SYSTEM_PROMPT},   # บุคลิก/กฎการเรียก tools
+        ]
         if ctx:
             messages.extend(_normalize_context(ctx))
         messages.append({"role": "user", "content": text})
@@ -183,7 +249,7 @@ def process_with_function_calling(
         # เลือกโมเดล (อัตโนมัติหรือบังคับ)
         model = force_model or pick_model(text)
 
-        # รอบแรก ให้โมเดลตัดสินใจว่าจะเรียก tools หรือไม่
+        # รอบแรก: ให้โมเดลตัดสินใจว่าจะเรียก tools หรือไม่
         try:
             resp = client.chat.completions.create(
                 model=model,
@@ -191,7 +257,7 @@ def process_with_function_calling(
                 tools=TOOLS,
                 tool_choice="auto",
             )
-        except Exception as e1:
+        except Exception:
             # fallback: ลองอีกโมเดล
             alt = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
             resp = client.chat.completions.create(
@@ -207,6 +273,7 @@ def process_with_function_calling(
         # ถ้าไม่มี tool_calls โมเดลตอบเองได้เลย
         if not getattr(msg, "tool_calls", None):
             answer = (msg.content or "").strip() or "❌ ไม่พบข้อความตอบกลับ"
+            answer = _sanitize_no_echo(text, answer)
             return adjust_bot_tone(answer)
 
         # มีการเรียก tool (อาจมากกว่า 1)
@@ -215,7 +282,11 @@ def process_with_function_calling(
             "role": "assistant",
             "content": msg.content or "",
             "tool_calls": [
-                {"id": tc.id, "type": tc.type, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
+                }
                 for tc in tool_calls
             ],
         })
@@ -254,6 +325,7 @@ def process_with_function_calling(
 
         final_msg = resp2.choices[0].message
         final_text = (final_msg.content or "").strip()
+        final_text = _sanitize_no_echo(text, final_text if final_text else (last_result_text or ""))
 
         if debug:
             try:
@@ -264,18 +336,18 @@ def process_with_function_calling(
             except Exception:
                 pass
 
-        return adjust_bot_tone(final_text if final_text else (last_result_text or ""))
+        return adjust_bot_tone(final_text)
 
     except Exception as e:
         print(f"[process_with_function_calling] {e}")
         return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
 
-
 # ---------- ตัวช่วยสรุปข้อความ ----------
 def summarize_text_with_gpt(text: str) -> str:
     try:
         messages = [
-            {"role": "system", "content": "ช่วยสรุปเนื้อหานี้เป็นข้อความสั้นๆ ภาษาไทย"},
+            {"role": "system", "content": SYSTEM_NO_ECHO},  # ไม่ทวนในงานสรุปเช่นกัน
+            {"role": "system", "content": "ช่วยสรุปเนื้อหานี้ให้สั้น กระชับ เป็นภาษาไทย"},
             {"role": "user", "content": text}
         ]
         resp = client.chat.completions.create(
@@ -283,7 +355,8 @@ def summarize_text_with_gpt(text: str) -> str:
             messages=messages
         )
         msg = resp.choices[0].message
-        return (msg.content or "").strip() or "❌ ไม่พบข้อความสรุป"
+        out = (msg.content or "").strip() or "❌ ไม่พบข้อความสรุป"
+        return _sanitize_no_echo(text, out)
     except Exception as e:
         print(f"[summarize_text_with_gpt] {e}")
         return "❌ สรุปข้อความไม่สำเร็จ"
