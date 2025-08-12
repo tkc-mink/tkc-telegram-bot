@@ -5,7 +5,8 @@ import os
 import json
 from typing import List, Dict, Any, Optional
 
-from utils.openai_client import client  # ใช้ client กลาง
+# ใช้ client และตัวเลือกโมเดลเดียวกับทั้งระบบ
+from utils.openai_client import client, DEFAULT_MODEL, STRONG_MODEL, pick_model
 from utils.weather_utils import get_weather_forecast
 from utils.gold_utils    import get_gold_price
 from utils.news_utils    import get_news
@@ -17,9 +18,8 @@ from utils.serp_utils    import (
 )
 from utils.bot_profile import adjust_bot_tone, bot_intro
 
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-# ---------- Tools (Function Calling แบบใหม่) ----------
+# ---------- Tools (Function Calling) ----------
 TOOLS = [
     {
         "type": "function",
@@ -110,6 +110,7 @@ SYSTEM_PROMPT = (
     "หากพบคำถามเกี่ยวกับอากาศ, ราคาทอง, ข่าว, หุ้น, น้ำมัน, หวย, คริปโต ให้เรียกฟังก์ชันที่ระบบมีให้"
 )
 
+
 # ---------- ตัวกระจายคำสั่งไปยังฟังก์ชัน Python จริง ----------
 def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
     try:
@@ -132,6 +133,7 @@ def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
         print(f"[function_dispatch] {fname} error: {e}")
         return "❌ ดึงข้อมูลจากฟังก์ชันไม่สำเร็จ"
 
+
 def _normalize_context(ctx) -> List[Dict[str, str]]:
     if not ctx:
         return []
@@ -143,24 +145,63 @@ def _normalize_context(ctx) -> List[Dict[str, str]]:
             norm.append({"role": "user", "content": item})
     return norm[-5:]  # จำกัดบริบทล่าสุด 5 รายการ
 
+
 # ---------- แกนหลักสำหรับตอบ + เรียก tools ----------
-def process_with_function_calling(user_message: str, ctx=None, debug: bool=False) -> str:
+def process_with_function_calling(
+    user_message: str,
+    ctx=None,
+    debug: bool = False,
+) -> str:
+    """
+    กลไกหลักสำหรับตอบกลับด้วย LLM + ฟังก์ชันจริง
+    - ปกติใช้โมเดล DEFAULT_MODEL (gpt-5-mini)
+    - ถ้าข้อความยาก/ยาว/มีโค้ด หรือผู้ใช้สั่ง 'ใช้ gpt5' หรือ '/gpt5 ...' จะยกไป STRONG_MODEL (gpt-5)
+    - มี fallback สลับโมเดลอัตโนมัติเมื่อเรียกล้มเหลว
+    """
     try:
-        if any(x in user_message.lower() for x in ["ชื่ออะไร", "คุณชื่ออะไร", "คุณคือใคร", "bot ชื่ออะไร", "/start"]):
+        text = user_message or ""
+        low = text.lower()
+
+        # ชื่อ/เริ่มต้นบทสนทนา
+        if any(k in low for k in ["ชื่ออะไร", "คุณชื่ออะไร", "คุณคือใคร", "bot ชื่ออะไร", "/start"]):
             return bot_intro()
 
+        # คำสั่งบังคับให้ใช้ gpt-5
+        force_model: Optional[str] = None
+        if low.startswith("/gpt5 "):
+            force_model = STRONG_MODEL
+            text = text.split(" ", 1)[1]  # ตัด prefix ออกก่อนส่งให้โมเดล
+        elif "ใช้ gpt5" in low or "use gpt5" in low:
+            force_model = STRONG_MODEL
+
+        # เตรียม messages
         messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
         if ctx:
             messages.extend(_normalize_context(ctx))
-        messages.append({"role": "user", "content": user_message})
+        messages.append({"role": "user", "content": text})
 
-        # รอบแรก ให้โมเดลตัดสินใจว่าจะเรียก tool อะไรบ้าง
-        resp = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-        )
+        # เลือกโมเดล (อัตโนมัติหรือบังคับ)
+        model = force_model or pick_model(text)
+
+        # รอบแรก ให้โมเดลตัดสินใจว่าจะเรียก tools หรือไม่
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+            )
+        except Exception as e1:
+            # fallback: ลองอีกโมเดล
+            alt = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
+            resp = client.chat.completions.create(
+                model=alt,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+            )
+            model = alt  # ใช้ตัวที่สำเร็จ
+
         msg = resp.choices[0].message
 
         # ถ้าไม่มี tool_calls โมเดลตอบเองได้เลย
@@ -168,7 +209,7 @@ def process_with_function_calling(user_message: str, ctx=None, debug: bool=False
             answer = (msg.content or "").strip() or "❌ ไม่พบข้อความตอบกลับ"
             return adjust_bot_tone(answer)
 
-        # มีการเรียก tool (อาจมากกว่า 1 รายการ)
+        # มีการเรียก tool (อาจมากกว่า 1)
         tool_calls = msg.tool_calls or []
         messages.append({
             "role": "assistant",
@@ -196,26 +237,39 @@ def process_with_function_calling(user_message: str, ctx=None, debug: bool=False
                 "content": result_text,
             })
 
-        # รอบสอง: ให้โมเดลสรุปคำตอบจากผลของ tools (ปิดการเรียก tool เพิ่มเติม)
-        resp2 = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-            messages=messages,
-            tool_choice="none",
-        )
+        # รอบสอง: ให้โมเดลสรุปคำตอบจากผลของ tools (ปิด tools เพิ่มเติม)
+        try:
+            resp2 = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tool_choice="none",
+            )
+        except Exception:
+            alt = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
+            resp2 = client.chat.completions.create(
+                model=alt,
+                messages=messages,
+                tool_choice="none",
+            )
+
         final_msg = resp2.choices[0].message
         final_text = (final_msg.content or "").strip()
 
         if debug:
-            print("=== TOOL CONTEXT ===")
-            print(json.dumps(messages, ensure_ascii=False, indent=2))
-            print("=== LLM FINAL ===")
-            print(final_text)
+            try:
+                print("=== TOOL CONTEXT ===")
+                print(json.dumps(messages, ensure_ascii=False, indent=2))
+                print("=== LLM FINAL ===")
+                print(final_text)
+            except Exception:
+                pass
 
         return adjust_bot_tone(final_text if final_text else (last_result_text or ""))
 
     except Exception as e:
         print(f"[process_with_function_calling] {e}")
         return "❌ ระบบขัดข้องชั่วคราว ลองใหม่อีกครั้งครับ"
+
 
 # ---------- ตัวช่วยสรุปข้อความ ----------
 def summarize_text_with_gpt(text: str) -> str:
@@ -225,7 +279,7 @@ def summarize_text_with_gpt(text: str) -> str:
             {"role": "user", "content": text}
         ]
         resp = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+            model=DEFAULT_MODEL,
             messages=messages
         )
         msg = resp.choices[0].message
