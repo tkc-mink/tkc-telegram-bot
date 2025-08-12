@@ -1,6 +1,8 @@
 # handlers/main_handler.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 from typing import Dict, Any
+import re
 import traceback
 
 from handlers.history       import handle_history
@@ -18,17 +20,97 @@ from handlers.report        import handle_report
 from handlers.faq           import handle_faq
 from handlers.backup_status import handle_backup_status
 
-# >>> เปลี่ยนมาใช้ตัวส่งข้อความที่มีดีบักของเราโดยตรง
+# ใช้ตัวส่งข้อความที่มีดีบักของเราโดยตรง
 from utils.telegram_api import send_message as tg_send_message
-# (ถ้าต้องใช้ helper อื่นใน message_utils ค่อย import รายตัวมาเพิ่มภายหลัง)
 
 from utils.context_utils import update_location
 from function_calling import process_with_function_calling
 from utils.bot_profile import bot_intro, adjust_bot_tone
 
+
 # จำว่าแต่ละ user แนะนำตัวไปแล้วหรือยัง (memory แบบง่าย)
 user_intro: dict[int, bool] = {}
 
+
+# ---------- Helpers: No-Echo Sanitizer ----------
+_PREFIX_PATTERNS = [
+    r"^\s*รับทราบ[:：-]\s*",          # รับทราบ:
+    r"^\s*คุณ\s*ถามว่า[:：-]\s*",     # คุณถามว่า:
+    r"^\s*สรุปคำถาม[:：-]\s*",        # สรุปคำถาม:
+    r"^\s*ยืนยันคำถาม[:：-]\s*",      # ยืนยันคำถาม:
+    r"^\s*คำถามของคุณ[:：-]\s*",      # คำถามของคุณ:
+    r"^\s*Question[:：-]\s*",
+    r"^\s*You\s+asked[:：-]\s*",
+]
+
+_PREFIX_REGEX = re.compile("|".join(_PREFIX_PATTERNS), re.IGNORECASE | re.UNICODE)
+
+def _strip_known_prefixes(text: str) -> str:
+    # ตัด prefix ที่ชอบทวน/ยืนยันคำถามออกจากหัวข้อความ
+    return _PREFIX_REGEX.sub("", text or "", count=1)
+
+def _looks_like_echo(user_text: str, line: str) -> bool:
+    """
+    ตรวจว่าบรรทัดแรกของคำตอบดูเหมือนทวนคำถามหรือไม่:
+    - ขึ้นต้นด้วย "..." หรือ โค้ดบล็อก/quote ของ user_text
+    - มี user_text แบบแทบจะเหมือนกันมาก (ยืดหยุ่นเรื่องช่องว่าง/จุด/เครื่องหมายคำพูด)
+    """
+    if not user_text or not line:
+        return False
+
+    # ล้างสัญลักษณ์ quote/ช่องว่างพิเศษ เพื่อเทียบความคล้าย
+    def _norm(s: str) -> str:
+        s = re.sub(r"[\"'`“”‘’\s]+", "", s, flags=re.UNICODE)
+        s = re.sub(r"[.。…]+$", "", s, flags=re.UNICODE)
+        return s.casefold()
+
+    u = _norm(user_text)
+    l = _norm(line)
+
+    if not u or not l:
+        return False
+
+    # ถ้าบรรทัดแรกแทบจะเหมือน user_text (>= 85% ความยาว และ prefix-match) ให้ถือว่า echo
+    if l.startswith(u[: max(1, int(len(u) * 0.85)) ]):
+        return True
+
+    # หรือกรณี quote แบบขึ้นต้นด้วยเครื่องหมายคำพูด/quote block
+    if re.match(r'^\s*[>"`“‘]+', line):
+        return True
+
+    return False
+
+def _sanitize_no_echo(user_text: str, reply: str) -> str:
+    """
+    ล้างการทวนคำถามออกจากคำตอบ โดย:
+    1) ตัด prefix ที่คุ้นเคย เช่น "รับทราบ:" / "คุณถามว่า:"
+    2) ถ้าบรรทัดแรกคือ echo ของ user_text ให้ตัดทิ้ง
+    3) เก็บบรรทัดถัดไปเป็นคำตอบจริง
+    """
+    if not reply:
+        return reply
+
+    # ตัด prefix รูปแบบต่าง ๆ
+    reply = _strip_known_prefixes(reply).lstrip()
+
+    # แยกบรรทัด
+    lines = reply.splitlines()
+    if not lines:
+        return reply
+
+    # ถ้าบรรทัดแรกดูเป็นการทวน ให้ทิ้งบรรทัดแรก
+    if _looks_like_echo(user_text, lines[0]):
+        lines = lines[1:]
+        # ตัด prefix อีกรอบเผื่อบรรทัดใหม่ยังมี
+        if lines:
+            lines[0] = _strip_known_prefixes(lines[0]).lstrip()
+
+    # ประกอบคืน (ลบช่องว่างหัว/ท้าย)
+    cleaned = "\n".join(line.rstrip() for line in lines).strip()
+    return cleaned or reply.strip()
+
+
+# -------------------------------------------------
 
 def handle_message(data: Dict[str, Any]) -> None:
     chat_id = None
@@ -42,7 +124,7 @@ def handle_message(data: Dict[str, Any]) -> None:
 
         # ดึงข้อความจาก text/caption (ถ้ามี)
         user_text: str = (msg.get("caption") or msg.get("text") or "").strip()
-        user_text_low = user_text.lower()
+        user_text_low = user_text.casefold()
 
         # 1) ไฟล์เอกสาร -> ให้ handler doc จัดการ
         if msg.get("document"):
@@ -144,11 +226,15 @@ def handle_message(data: Dict[str, Any]) -> None:
         else:
             # 6) ตอบแบบ AI/Function calling
             print("[MAIN_HANDLER] dispatch: function_calling")
-            reply = process_with_function_calling(user_text)
+            reply = process_with_function_calling(user_text)  # ภายในควรเรียก no-echo system แล้ว
+            # ป้องกันเผื่อยังมี echo หลุดออกมา
+            reply = _sanitize_no_echo(user_text, reply)
+
             if intro_needed:
                 reply = bot_intro() + "\n" + adjust_bot_tone(reply)
             else:
                 reply = adjust_bot_tone(reply)
+
             tg_send_message(chat_id, reply)
 
     except Exception as e:
