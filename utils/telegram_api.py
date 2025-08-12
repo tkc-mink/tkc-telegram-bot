@@ -2,15 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 Thin wrapper สำหรับ Telegram Bot API
-- รองรับทั้ง TELEGRAM_BOT_TOKEN และ TELEGRAM_TOKEN (กันพลาด)
-- พิมพ์ log ดีบักแบบชัดเจนเวลา call API (เห็น status code/response)
-- มี helper สำหรับ setWebhook/getWebhookInfo/getMe เพื่อทดสอบจากแอปได้
+- รองรับทั้ง TELEGRAM_BOT_TOKEN และ TELEGRAM_TOKEN
+- Log ดีบักชัดเจน
+- ไม่บังคับ parse_mode โดยดีฟอลต์ (กัน 400 can't parse entities)
 """
 
 from __future__ import annotations
 import os
 import json
-import time
 import requests
 from typing import Any, Dict, Optional
 
@@ -24,7 +23,6 @@ API = f"https://api.telegram.org/bot{BOT_TOKEN}" if BOT_TOKEN else ""
 TIMEOUT = float(os.getenv("TG_API_TIMEOUT", "10"))
 
 def _log_debug(tag: str, **kw):
-    # ลด/เพิ่มรายละเอียดได้ตามต้องการ
     print(f"[telegram_api] {tag} :: " + json.dumps(kw, ensure_ascii=False))
 
 def _api_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -62,40 +60,61 @@ def _api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         return None
 
 # ===== Core helpers =====
-def send_message(chat_id: int | str, text: str, reply_markup: Dict[str, Any] | None = None):
-    payload = {
+def send_message(
+    chat_id: int | str,
+    text: str,
+    reply_markup: Dict[str, Any] | None = None,
+    parse_mode: Optional[str] = None,           # <-- ทำเป็นออปชัน
+    disable_web_page_preview: bool = True,
+):
+    payload: Dict[str, Any] = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
+        "disable_web_page_preview": disable_web_page_preview,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
+    if parse_mode:                               # <-- ใส่เฉพาะเมื่อผู้เรียกต้องการจริง
+        payload["parse_mode"] = parse_mode
     return _api_post("sendMessage", payload)
 
 def send_chat_action(chat_id: int | str, action: str = "typing"):
-    # action: typing, upload_photo, upload_document, upload_video, choose_sticker, find_location, record_voice, etc.
     return _api_post("sendChatAction", {"chat_id": chat_id, "action": action})
 
-def send_photo(chat_id: int | str, photo_url_or_file_id: str, caption: str | None = None, reply_markup=None):
-    payload = {"chat_id": chat_id, "photo": photo_url_or_file_id}
-    if caption:
+def send_photo(
+    chat_id: int | str,
+    photo_url_or_file_id: str,
+    caption: str | None = None,
+    reply_markup: Dict[str, Any] | None = None,
+    parse_mode: Optional[str] = None,            # <-- ทำเป็นออปชัน
+):
+    payload: Dict[str, Any] = {"chat_id": chat_id, "photo": photo_url_or_file_id}
+    if caption is not None:
         payload["caption"] = caption
-        payload["parse_mode"] = "HTML"
     if reply_markup:
         payload["reply_markup"] = reply_markup
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     return _api_post("sendPhoto", payload)
 
-def edit_message_text(chat_id: int | str, message_id: int, text: str, reply_markup=None):
-    payload = {
+def edit_message_text(
+    chat_id: int | str,
+    message_id: int,
+    text: str,
+    reply_markup: Dict[str, Any] | None = None,
+    parse_mode: Optional[str] = None,            # <-- ทำเป็นออปชัน
+    disable_web_page_preview: bool = True,
+):
+    payload: Dict[str, Any] = {
         "chat_id": chat_id,
         "message_id": message_id,
         "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True
+        "disable_web_page_preview": disable_web_page_preview,
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     return _api_post("editMessageText", payload)
 
 def answer_callback_query(callback_query_id: str, text: str | None = None, show_alert: bool = False):
@@ -105,12 +124,14 @@ def answer_callback_query(callback_query_id: str, text: str | None = None, show_
     return _api_post("answerCallbackQuery", payload)
 
 # ===== Webhook / Diagnostics =====
-def set_webhook(url: str, drop_pending: bool = True):
-    params = {
+def set_webhook(url: str, drop_pending: bool = True, secret_token: Optional[str] = None):
+    params: Dict[str, Any] = {
         "url": url,
         "allowed_updates": ["message", "edited_message", "callback_query"],
         "drop_pending_updates": drop_pending,
     }
+    if secret_token:
+        params["secret_token"] = secret_token
     return _api_post("setWebhook", params)
 
 def delete_webhook(drop_pending: bool = True):
@@ -124,7 +145,6 @@ def get_me():
 
 # ===== Convenience keyboard builders =====
 def inline_rating_keyboard():
-    # ปุ่ม 1–5 สำหรับรีวิว
     rows = [[{"text": str(i), "callback_data": f"review:{i}"} for i in range(1, 6)]]
     return {"inline_keyboard": rows}
 
