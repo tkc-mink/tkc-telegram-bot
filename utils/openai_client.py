@@ -1,17 +1,18 @@
 # utils/openai_client.py
 # -*- coding: utf-8 -*-
 """
-OpenAI client (SDK v1.x) แบบเสถียร + Smart Model Picker
+OpenAI client (SDK v1.x) แบบเสถียร + Smart Model Picker + No-Echo Mode
 
-- ไม่ส่ง proxies เข้า httpx (กัน TypeError: unexpected keyword 'proxies')
-- รองรับ BASE_URL/ORG/timeout/max_retries ผ่าน ENV
-- มี helper:
-    - chat_completion / simple_ask            : ข้อความล้วน
-    - chat_completion_smart                   : สลับโมเดลอัตโนมัติ mini <-> strong
-    - chat_with_tools_smart                   : เหมาะกับ function calling (tools)
-    - vision_analyze                          : วิเคราะห์ภาพ (multimodal)
-    - image_generate_file                     : สร้างภาพเป็นไฟล์ PNG
-- รวมข้อความ error เป็นภาษาคนด้วย _err_to_text
+สิ่งที่เพิ่มจากเวอร์ชันเดิม:
+- รองรับ "ไม่ทวนคำถาม" (No-Echo) โดยแทรก SYSTEM_NO_ECHO อัตโนมัติ
+- เพิ่มฟังก์ชัน chat_no_echo(user_text, ...) สำหรับยิงเร็วแบบไม่ทวน
+- เพิ่ม ensure_no_echo_system(messages, ...) เพื่อบังคับ System Prompt ในทุกเมธอดที่ใช้ messages
+- ทุกเมธอดหลัก (chat_completion/chat_completion_smart/chat_with_tools_smart/simple_ask)
+  รองรับพารามิเตอร์ no_echo: bool = False
+
+ข้อดี:
+- ไม่ต้องไปใส่ prefix "รับทราบ:" หรือ "คุณถามว่า" ที่อื่น
+- ควบคุมพฤติกรรมไม่ทวนได้จากจุดกลาง
 
 ENV:
   OPENAI_API_KEY          (จำเป็น)
@@ -28,11 +29,22 @@ ENV:
 from __future__ import annotations
 import os
 import base64
-import time
 from typing import List, Dict, Any, Optional
 
 from openai import OpenAI
 from openai import APIError, RateLimitError, APITimeoutError, AuthenticationError
+
+# ===== PROMPT TEMPLATES (ต้องมีไฟล์นี้ตามที่เตรียมไว้) =====
+try:
+    from utils.prompt_templates import SYSTEM_NO_ECHO
+except Exception:
+    # fallback ป้องกันกรณีไฟล์ยังไม่พร้อม
+    SYSTEM_NO_ECHO = (
+        "คุณเป็นผู้ช่วยที่ตอบสั้น กระชับ และตรงคำถาม "
+        "ห้ามทวนคำถามหรือคัดลอกข้อความของผู้ใช้กลับมาก่อนตอบ "
+        "ตอบทันทีเป็นประเด็น ไม่ต้องขึ้นต้นด้วยคำว่า 'รับทราบ' หรือ 'คุณถามว่า' "
+        "หลีกเลี่ยงประโยคฟุ่มเฟือย และเน้นตอบเนื้อหาหลักเท่านั้น"
+    )
 
 # ===== ENV =====
 API_KEY       = os.getenv("OPENAI_API_KEY", "").strip()
@@ -98,8 +110,43 @@ def pick_model(prompt: Optional[str] = None, force: Optional[str] = None) -> str
         return DEFAULT_MODEL
     text = (prompt or "").lower()
     hard = any(k in text for k in HARD_KEYWORDS)
-    hard = hard or len(prompt) > 1200 or "```" in prompt or "SELECT " in prompt or "CREATE TABLE" in prompt
+    hard = hard or len(prompt) > 1200 or "```" in prompt or "select " in text or "create table" in text
     return STRONG_MODEL if hard else DEFAULT_MODEL
+
+
+# ===== Utilities: enforce No-Echo System Prompt =====
+def ensure_no_echo_system(
+    messages: List[Dict[str, Any]],
+    system_text: str = SYSTEM_NO_ECHO,
+    force_insert_first: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    แทรกหรือแทนที่ system message เป็น SYSTEM_NO_ECHO
+    - ถ้า force_insert_first=True: บังคับให้ system อยู่ index 0 เสมอ
+    - ถ้ามี system เดิมอยู่แล้ว จะคงไว้เป็นรายการถัดไป (ป้องกันการทำลาย instruction อื่น)
+    """
+    msgs = []
+    found_system = False
+    for m in messages:
+        if m.get("role") == "system":
+            found_system = True
+            # ข้ามไปก่อน เพื่อจัดตำแหน่งใหม่
+            continue
+        msgs.append(m)
+
+    # ใส่ system_no_echo เป็นอันแรก
+    out = [{"role": "system", "content": system_text}]
+    if found_system:
+        # นำ system เดิมทุกอัน (ถ้าต้องการ) มาต่อท้าย system_no_echo
+        for m in messages:
+            if m.get("role") == "system":
+                out.append(m)
+        out.extend([m for m in msgs if m.get("role") != "system"])
+        return out
+
+    # ไม่มี system เดิม ก็แค่ใส่ที่หัว
+    out.extend(msgs)
+    return out
 
 
 # ===== Chat (ข้อความอย่างเดียว) =====
@@ -108,13 +155,19 @@ def chat_completion(
     model: Optional[str] = None,
     temperature: float = 0.3,
     max_tokens: Optional[int] = None,
+    *,
+    no_echo: bool = False
 ) -> str:
     """เรียก chat.completions และคืนเฉพาะข้อความตอบกลับ"""
     _model = model or DEFAULT_MODEL
     try:
+        _messages = messages
+        if no_echo:
+            _messages = ensure_no_echo_system(messages)
+
         resp = client.chat.completions.create(
             model=_model,
-            messages=messages,
+            messages=_messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
@@ -128,6 +181,8 @@ def chat_completion_smart(
     prefer_strong: bool = False,
     temperature: float = 0.3,
     max_tokens: Optional[int] = None,
+    *,
+    no_echo: bool = False
 ) -> str:
     """
     เรียกแชทแบบเลือกโมเดลอัตโนมัติ + fallback:
@@ -144,16 +199,24 @@ def chat_completion_smart(
 
     model = STRONG_MODEL if prefer_strong else pick_model(user_txt)
     try:
+        _messages = messages
+        if no_echo:
+            _messages = ensure_no_echo_system(messages)
+
         resp = client.chat.completions.create(
-            model=model, messages=messages, temperature=temperature, max_tokens=max_tokens
+            model=model, messages=_messages, temperature=temperature, max_tokens=max_tokens
         )
         return (resp.choices[0].message.content or "").strip()
-    except Exception as e1:
+    except Exception:
         # ลองอีกโมเดลหนึ่งเป็นสำรอง
         backup = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
         try:
+            _messages = messages
+            if no_echo:
+                _messages = ensure_no_echo_system(messages)
+
             resp = client.chat.completions.create(
-                model=backup, messages=messages, temperature=temperature, max_tokens=max_tokens
+                model=backup, messages=_messages, temperature=temperature, max_tokens=max_tokens
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e2:
@@ -167,6 +230,8 @@ def chat_with_tools_smart(
     prefer_strong: bool = False,
     temperature: float = 0.3,
     max_tokens: Optional[int] = None,
+    *,
+    no_echo: bool = False
 ) -> Any:
     """
     สะดวกใช้กับ Function Calling:
@@ -182,28 +247,46 @@ def chat_with_tools_smart(
 
     model = STRONG_MODEL if prefer_strong else pick_model(user_txt)
     try:
+        _messages = messages
+        if no_echo:
+            _messages = ensure_no_echo_system(messages)
+
         return client.chat.completions.create(
-            model=model, messages=messages, tools=tools,
+            model=model, messages=_messages, tools=tools,
             tool_choice=tool_choice, temperature=temperature, max_tokens=max_tokens
         )
     except Exception:
         backup = DEFAULT_MODEL if model == STRONG_MODEL else STRONG_MODEL
         return client.chat.completions.create(
-            model=backup, messages=messages, tools=tools,
-            tool_choice=tool_choice, temperature=temperature, max_tokens=max_tokens
+            model=backup, messages=_messages if not no_echo else ensure_no_echo_system(messages),
+            tools=tools, tool_choice=tool_choice, temperature=temperature, max_tokens=max_tokens
         )
 
 
-def simple_ask(prompt: str, model: Optional[str] = None) -> str:
-    """ถามสั้น ๆ (role=user)"""
+def simple_ask(prompt: str, model: Optional[str] = None, *, no_echo: bool = True) -> str:
+    """ถามสั้น ๆ (role=user) — ค่าเริ่มต้น no_echo=True เพื่อกันนิสัยทวนโดยไม่ต้องใส่เพิ่ม"""
     msgs = [
+        # system จะถูกแทนด้วย SYSTEM_NO_ECHO เมื่อ no_echo=True
         {"role": "system", "content": "You are a helpful, concise assistant."},
         {"role": "user", "content": prompt},
     ]
-    # ใช้ smart picker ถ้าไม่บังคับโมเดล
     if model:
-        return chat_completion(msgs, model=model)
-    return chat_completion_smart(msgs)
+        return chat_completion(msgs, model=model, no_echo=no_echo)
+    return chat_completion_smart(msgs, no_echo=no_echo)
+
+
+# ===== ทางลัด: ไม่ทวนคำถามด้วย user_text ตรง ๆ =====
+def chat_no_echo(user_text: str, *, model: Optional[str] = None, temperature: float = 0.3, max_tokens: Optional[int] = None) -> str:
+    """
+    ยิงข้อความผู้ใช้ตรง ๆ ด้วย System 'ห้ามทวนคำถาม'
+    ใช้งานใน handler ได้ทันที เช่น:
+        answer = chat_no_echo(user_text)
+    """
+    messages = [
+        {"role": "system", "content": SYSTEM_NO_ECHO},
+        {"role": "user", "content": (user_text or "").strip()},
+    ]
+    return chat_completion_smart(messages, prefer_strong=False, temperature=temperature, max_tokens=max_tokens, no_echo=False)
 
 
 # ===== Vision (วิเคราะห์ภาพ) =====
