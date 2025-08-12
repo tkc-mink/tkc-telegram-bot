@@ -9,7 +9,7 @@ import json
 from typing import List, Dict, Any, Optional
 
 # ===== NEW: Import Gemini Client and Tools =====
-# เราจะเปลี่ยนมาเรียกใช้ Gemini Client ที่เราสร้างขึ้น
+import google.generativeai as genai # ✅ เพิ่ม import ที่ขาดไป
 from utils.gemini_client import MODEL_PRO, MODEL_FLASH, generate_text, _err_to_text
 
 # ===== Tool Function Imports (เหมือนเดิม) =====
@@ -24,9 +24,16 @@ from utils.serp_utils    import (
 )
 from utils.bot_profile import adjust_bot_tone, bot_intro
 
+# ===== ✅ NEW: ปรับบุคลิกเป็น "ชิบะน้อย" =====
+SYSTEM_PROMPT = (
+    "คุณคือ 'ชิบะน้อย' ผู้ช่วย AI เพศชายที่ฉลาดและเป็นมิตร ตอบสั้น กระชับ ตรงประเด็น "
+    "แทนตัวเองว่า 'ชิบะน้อย' ทุกครั้ง และลงท้ายประโยคด้วย 'ครับ' "
+    "ห้ามทวนคำถามหรือคัดลอกคำของผู้ใช้ก่อนตอบ "
+    "อย่าแนะนำตัวเอง เว้นแต่ผู้ใช้ถามชื่อ "
+    "หากพบคำถามเกี่ยวกับอากาศ ราคาทอง ข่าว หุ้น น้ำมัน หวย หรือคริปโต ให้เรียกเครื่องมือที่มีให้"
+)
+
 # ===== Tool Definitions for Gemini =====
-# Gemini ใช้การประกาศ Tool ที่แตกต่างออกไปเล็กน้อย แต่หลักการเหมือนเดิม
-# เราจะใช้ MODEL_PRO สำหรับ Tool Calling เพราะมีความสามารถสูงสุด
 TOOL_CONFIG = {
     "function_declarations": [
         {
@@ -84,10 +91,9 @@ except Exception as e:
     print(f"[function_calling] ❌ ERROR: Could not initialize Gemini with tools: {e}")
     gemini_model_with_tools = None
 
+# ... (ส่วนที่เหลือของไฟล์ function_dispatch และ Core Logic เหมือนเดิมทุกประการ) ...
 
-# ===== Function Dispatcher (เหมือนเดิม) =====
 def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
-    # ... (เนื้อหาฟังก์ชันนี้เหมือนเดิมทุกประการ ไม่ต้องแก้ไข) ...
     try:
         if fname == "get_weather_forecast":
             return get_weather_forecast(text=args.get("text", ""), lat=args.get("lat"), lon=args.get("lon"))
@@ -108,30 +114,22 @@ def function_dispatch(fname: str, args: Dict[str, Any]) -> str:
         print(f"[function_dispatch] {fname} error: {e}")
         return f"❌ ดึงข้อมูลจากฟังก์ชัน {fname} ไม่สำเร็จ: {e}"
 
-
-# ===== Core Logic (Refactored for Gemini) =====
 def process_with_function_calling(
     user_message: str,
-    ctx=None, # Context จะถูกรวมเข้าไปใน prompt โดยตรง
+    ctx=None,
     conv_summary: Optional[str] = None,
 ) -> str:
-    """
-    ตอบด้วย Gemini + tools โดยสร้าง prompt ที่มีบริบทและสรุปบทสนทนา
-    """
     if not gemini_model_with_tools:
-        return "❌ ขออภัยค่ะ ระบบ Tool Calling ของ Gemini ไม่พร้อมใช้งานในขณะนี้"
+        return "❌ ขออภัยครับ ระบบ Tool Calling ของชิบะน้อยไม่พร้อมใช้งานในขณะนี้"
 
     try:
-        # 1. สร้าง Prompt ที่สมบูรณ์สำหรับ Gemini
         full_prompt = []
-        full_prompt.append(
-            "คุณเป็นผู้ช่วย AI ภาษาไทยที่เป็นมิตรและตอบตรงประเด็น "
-            "หากจำเป็น ให้ใช้เครื่องมือ (functions) ที่มีเพื่อหาคำตอบที่ถูกต้องที่สุด"
-        )
+        # ใช้ System Prompt ใหม่ที่เราเพิ่งสร้าง
+        full_prompt.append(SYSTEM_PROMPT)
+        
         if conv_summary:
             full_prompt.append(f"\n[บทสรุปการสนทนาก่อนหน้านี้]:\n{conv_summary}")
         if ctx:
-            # รวม context เข้าไปใน prompt (ประวัติการแชทล่าสุด)
             history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in ctx])
             full_prompt.append(f"\n[ประวัติการสนทนาล่าสุด]:\n{history_text}")
         
@@ -139,29 +137,23 @@ def process_with_function_calling(
         
         final_prompt = "\n".join(full_prompt)
 
-        # 2. เรียก Gemini (รอบแรก) เพื่อดูว่าต้องใช้ Tool หรือไม่
         response = gemini_model_with_tools.generate_content(final_prompt)
         response_part = response.parts[0]
 
-        # 3. ถ้า Gemini ไม่เรียกใช้ Tool ก็ตอบกลับได้เลย
         if not hasattr(response_part, 'function_call'):
             return response.text.strip()
 
-        # 4. ถ้า Gemini เรียกใช้ Tool
-        # Gemini อาจเรียกใช้หลาย tool พร้อมกันได้ในอนาคต (ตอนนี้รองรับทีละ 1)
         func_call = response_part.function_call
         func_name = func_call.name
         func_args = {key: value for key, value in func_call.args.items()}
         
-        # 5. เรียกใช้ฟังก์ชันในโค้ดของเรา
         tool_result = function_dispatch(func_name, func_args)
 
-        # 6. ส่งผลลัพธ์ของ Tool กลับไปให้ Gemini เพื่อสร้างคำตอบสุดท้าย
         response_after_tool = gemini_model_with_tools.generate_content(
             [
-                final_prompt, # Prompt เดิม
-                response,     # การตัดสินใจของ Gemini ในรอบแรก
-                { # ผลลัพธ์จาก Tool
+                final_prompt,
+                response,
+                {
                     "tool_response": {
                         "name": func_name,
                         "response": tool_result,
@@ -174,12 +166,8 @@ def process_with_function_calling(
 
     except Exception as e:
         print(f"[process_with_function_calling] Error: {e}")
-        # หากระบบ Tool ขัดข้อง ให้ใช้ระบบตอบคำถามธรรมดาแทน
         return generate_text(user_message)
 
-
-# ===== Summarize Function (Refactored for Gemini) =====
 def summarize_text_with_gpt(text: str) -> str:
-    """สรุปข้อความด้วย Gemini (เปลี่ยนชื่อจากเดิมเพื่อความชัดเจน)"""
-    prompt = f"ช่วยสรุปบทสนทนานี้ให้สั้น กระชับ และเป็นกันเองที่สุด: \n\n---\n{text}\n---"
+    prompt = f"ในฐานะ 'ชิบะน้อย' ช่วยสรุปบทสนทนานี้ให้สั้น กระชับ และเป็นกันเองที่สุดครับ: \n\n---\n{text}\n---"
     return generate_text(prompt, prefer_strong=False)
