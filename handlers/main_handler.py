@@ -1,7 +1,7 @@
 # handlers/main_handler.py
 # -*- coding: utf-8 -*-
 """
-Main Message Handler (The Bot's Brain) - V2
+Main Message Handler (The Bot's Brain) - V2.1 (SyntaxError Fix)
 - Fully integrated with persistent memory for user profiles and location.
 - Handles routing for all commands and general conversation.
 """
@@ -30,22 +30,17 @@ from handlers.image import handle_image
 from utils.telegram_api import send_message as tg_send_message
 from function_calling import process_with_function_calling, summarize_text_with_gpt
 from utils.bot_profile import bot_intro
-
-# --- ✅ ส่วนที่เราอัปเกรด ---
-# เราจะ import ฟังก์ชันที่จำเป็นจาก memory_store โดยตรง
 from utils.memory_store import (
     get_or_create_user,
     append_message,
     get_recent_context,
     get_summary,
     prune_and_maybe_summarize,
-    update_user_location  # <-- เพิ่ม import นี้
+    update_user_location
 )
-# --------------------
 
 # --- Helper Functions for Commands ---
 def _handle_start(user_info: Dict[str, Any], text: str):
-    """Handles the /start command with a personalized greeting."""
     chat_id = user_info['profile']['user_id']
     first_name = user_info['profile']['first_name']
     if user_info['status'] == 'new_user':
@@ -56,13 +51,11 @@ def _handle_start(user_info: Dict[str, Any], text: str):
     _send_help(chat_id)
 
 def _handle_whoami(user_info: Dict[str, Any], text: str):
-    """Responds with the bot's identity."""
     chat_id = user_info['profile']['user_id']
     tg_send_message(chat_id, bot_intro())
 
 # ===== Command Router Configuration =====
 COMMAND_HANDLERS: Dict[str, Callable] = {
-    # Commands starting with "/"
     "/my_history": handle_history, "/gold": handle_gold, "/lottery": handle_lottery,
     "/stock": handle_stock, "/crypto": handle_crypto, "/oil": handle_oil,
     "/weather": handle_weather, "/search": handle_gemini_search,
@@ -71,19 +64,15 @@ COMMAND_HANDLERS: Dict[str, Callable] = {
     "/report": handle_report, "/summary": handle_report,
     "/faq": handle_faq, "/add_faq": handle_faq, "/start": _handle_start,
     "/help": lambda ui, txt: _send_help(ui['profile']['user_id']),
-
-    # Keyword-based commands (ใช้ handler เดียวกันได้)
     "ราคาทอง": handle_gold, "อากาศ": handle_weather, "ค้นหา": handle_gemini_search,
     "สร้างภาพ": handle_gemini_image_generation, "backup ล่าสุด": handle_backup_status,
     "ชื่ออะไร": _handle_whoami, "คุณคือใคร": _handle_whoami,
 }
 
-# (ส่วนของ No-Echo Sanitizer เหมือนเดิม)
-# ...
+# (ส่วนของ No-Echo Sanitizer สามารถคงไว้เหมือนเดิม)
 
 # ===== Main Message Handling Logic =====
 def handle_message(data: Dict[str, Any]) -> None:
-    """The main entry point for processing incoming messages from Telegram."""
     chat_id = None
     try:
         msg = data.get("message") or data.get("edited_message") or {}
@@ -104,31 +93,23 @@ def handle_message(data: Dict[str, Any]) -> None:
         user_text = (msg.get("caption") or msg.get("text") or "").strip()
         user_text_low = user_text.lower()
 
-        # --- Step 1: Handle Non-Text Messages First ---
-        if msg.get("document"):
-            return handle_doc(user_info, msg)
-        if msg.get("location"):
-            # ✅ **ส่วนที่อัปเกรด:** เรียกใช้ฟังก์ชันที่ถูกต้องเมื่อได้รับ Location
-            return _handle_location_message(user_info, msg)
+        if msg.get("document"): return handle_doc(user_info, msg)
+        if msg.get("location"): return _handle_location_message(user_info, msg)
         if msg.get("photo") or msg.get("sticker") or msg.get("video") or msg.get("animation"):
             return handle_image(user_info, msg)
         if not user_text:
-            tg_send_message(chat_id, "สวัสดีครับ มีอะไรให้ผมรับใช้ไหมครับ? พิมพ์ข้อความ, ส่งรูป, หรือใช้ /help เพื่อดูคำสั่งได้เลยครับ")
+            tg_send_message(chat_id, "สวัสดีครับ มีอะไรให้ผมรับใช้ไหมครับ? พิมพ์ /help เพื่อดูคำสั่งได้เลยครับ")
             return
 
-        # --- Step 2: Check for Specific Commands using the Router ---
         for command, handler in COMMAND_HANDLERS.items():
             if user_text_low.startswith(command):
-                print(f"[MAIN_HANDLER] Dispatching to handler for command '{command}'")
                 return handler(user_info, user_text)
 
-        # --- Step 3: If no command matches, handle as a general conversation ---
         print(f"[MAIN_HANDLER] Dispatching to general conversation for user {user_id}")
         append_message(user_id, "user", user_text)
         ctx = get_recent_context(user_id)
         summary = get_summary(user_id)
         reply = process_with_function_calling(user_text, ctx=ctx, conv_summary=summary)
-        # (ส่วน sanitize สามารถคงไว้ได้)
         tg_send_message(chat_id, reply)
         append_message(user_id, "assistant", reply)
         prune_and_maybe_summarize(user_id, summarize_func=summarize_text_with_gpt)
@@ -138,33 +119,22 @@ def handle_message(data: Dict[str, Any]) -> None:
         if chat_id:
             tg_send_message(chat_id, f"ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล: {e}")
 
-# --- ✅ **ฟังก์ชันที่อัปเกรดแล้ว** ---
+# --- ✅ ฟังก์ชันที่อัปเกรดแล้ว ---
 def _handle_location_message(user_info: Dict[str, Any], msg: Dict[str, Any]) -> None:
-    """
-    Handles incoming location messages, saving them to the user's permanent profile.
-    """
-    user_id = user_info['profile']['user_id']
-    chat_id = user_info['profile']['user_id']
-    user_name = user_info['profile']['first_name']
-    
+    user_id, chat_id, user_name = user_info['profile']['user_id'], user_info['profile']['user_id'], user_info['profile']['first_name']
     loc = msg.get("location", {})
     lat, lon = loc.get("latitude"), loc.get("longitude")
-
     if lat is not None and lon is not None:
-        # เรียกใช้ฟังก์ชันใหม่จาก memory_store เพื่อบันทึกตำแหน่งลงฐานข้อมูลถาวร
         if update_user_location(user_id, lat, lon):
-            success_message = (
-                f"✅ ขอบคุณครับคุณ {user_name}! ผมบันทึกตำแหน่งของคุณเรียบร้อยแล้ว\n"
-                "ต่อไปนี้คุณสามารถพิมพ์ /weather เพื่อดูสภาพอากาศได้ทันทีครับ"
-            )
-            tg_send_message(chat_id, success_message)
+            tg_send_message(chat_id, f"✅ ขอบคุณครับคุณ {user_name}! ผมบันทึกตำแหน่งของคุณแล้ว ลองใช้ /weather ได้เลยครับ")
         else:
-            tg_send_message(chat_id, "❌ ขออภัยครับ เกิดปัญหาในการบันทึกตำแหน่งของคุณ")
+            tg_send_message(chat_id, "❌ ขออภัยครับ เกิดปัญหาในการบันทึกตำแหน่ง")
     else:
-        tg_send_message(chat_id, "❌ ตำแหน่งที่ส่งมาไม่ถูกต้อง กรุณาลองส่งใหม่นะครับ")
+        tg_send_message(chat_id, "❌ ตำแหน่งที่ส่งมาไม่ถูกต้อง")
 
 def _send_help(chat_id: int) -> None:
     """Sends a help message with a list of available commands."""
+    # ✅ **เวอร์ชันแก้ไข Syntax Error แล้ว**
     help_text = (
         "**รายการคำสั่งที่ใช้ได้ครับ**\n\n"
         "**ความสามารถหลัก:**\n"
@@ -175,10 +145,10 @@ def _send_help(chat_id: int) -> None:
         "• `/gold` - ราคาทอง\n"
         "• `/lottery` - ผลสลากฯ\n"
         "• `/stock <ชื่อหุ้น>` - ราคาหุ้น\n"
-* `/crypto <ชื่อเหรียญ>` - ราคาเหรียญดิจิทัล\n"
-* `/oil` - ราคาน้ำมัน\n"
-* `/weather` - พยากรณ์อากาศ (จะใช้ตำแหน่งล่าสุดที่คุณแชร์)\n"
-* `/review` - รีวิวการทำงานของผม\n\n"
+        "• `/crypto <ชื่อเหรียญ>` - ราคาเหรียญดิจิทัล\n"
+        "• `/oil` - ราคาน้ำมัน\n"
+        "• `/weather` - พยากรณ์อากาศ (จะใช้ตำแหน่งล่าสุดที่คุณแชร์)\n"
+        "• `/review` - รีวิวการทำงานของผม\n\n"
         "*คุณสามารถพิมพ์คุยกับผมได้เลยทุกเรื่องนะครับ ผมจำได้ว่าเราคุยอะไรกันไว้บ้าง*"
     )
     tg_send_message(chat_id, help_text, parse_mode="Markdown")
