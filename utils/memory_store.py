@@ -1,7 +1,8 @@
+# utils/memory_store.py
 # -*- coding: utf-8 -*-
 """
-Persistent Memory Store using SQLite
-- Stores a permanent profile for each user.
+Persistent Memory Store using SQLite (Version 2)
+- Stores a permanent profile for each user, including last known location.
 - Stores conversation history for each user.
 - Handles context retrieval and history pruning.
 """
@@ -20,30 +21,29 @@ KEEP_TAIL_AFTER_SUM = int(os.getenv("MEMORY_KEEP_TAIL_AFTER_SUM", "8"))
 CTX_MAX_ITEMS = int(os.getenv("MEMORY_CTX_MAX_ITEMS", "12"))
 CTX_MAX_CHARS = int(os.getenv("MEMORY_CTX_MAX_CHARS", "6000"))
 
-# สร้างโฟลเดอร์ data ถ้ายังไม่มี
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# --- Private Helper Functions ---
-
 def _get_db_connection() -> sqlite3.Connection:
-    """สร้างการเชื่อมต่อกับฐานข้อมูล SQLite"""
-    conn = sqlite3.connect(DB_PATH)
-    # ทำให้ผลลัพธ์จากการ query เป็น dictionary เพื่อให้ใช้ง่าย
+    """Creates a connection to the SQLite database."""
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
 
-# --- Initialization ---
+def _add_column_if_not_exists(cursor: sqlite3.Cursor, table: str, column: str, col_type: str):
+    """Helper function to add a column to a table if it doesn't already exist."""
+    cursor.execute(f"PRAGMA table_info({table})")
+    columns = [row['name'] for row in cursor.fetchall()]
+    if column not in columns:
+        print(f"[Memory] Upgrading table '{table}', adding column '{column}'...")
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 def init_db():
-    """
-    ฟังก์ชันสำหรับสร้างฐานข้อมูลและตารางที่จำเป็นทั้งหมด ถ้ายังไม่มี
-    จะถูกเรียกใช้แค่ครั้งเดียวตอนที่บอทเริ่มทำงาน
-    """
+    """Initializes the database and creates/upgrades tables."""
     try:
         with _get_db_connection() as conn:
             cursor = conn.cursor()
 
-            # 1. สร้างตาราง 'users' สำหรับเก็บโปรไฟล์ถาวร
+            # 1. สร้างตาราง 'users' พร้อมคอลัมน์พื้นฐาน
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
@@ -55,8 +55,12 @@ def init_db():
                     summary TEXT DEFAULT ''
                 )
             """)
+            
+            # ✅ **ส่วนที่อัปเกรด:** เพิ่มคอลัมน์สำหรับเก็บ Location อย่างปลอดภัย
+            _add_column_if_not_exists(cursor, 'users', 'latitude', 'REAL')
+            _add_column_if_not_exists(cursor, 'users', 'longitude', 'REAL')
 
-            # 2. สร้างตาราง 'messages' สำหรับเก็บประวัติการสนทนา
+            # 2. สร้างตาราง 'messages' (เหมือนเดิม)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     message_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,51 +71,41 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            
-            # 3. สร้าง Index เพื่อเพิ่มความเร็วในการค้นหา
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id_timestamp ON messages (user_id, timestamp);")
-
+            
             conn.commit()
-            print("[Memory] Database initialized successfully. Tables 'users' and 'messages' are ready.")
-
+            print("[Memory] Database initialized successfully (v2 with location support).")
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
-# --- Public API Functions ---
-
 def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    ฟังก์ชันหัวใจหลัก: ตรวจสอบโปรไฟล์ผู้ใช้, สร้างใหม่ถ้าไม่มี, หรืออัปเดตถ้ามีอยู่แล้ว
-    user_data คือ object ที่ได้จาก Telegram (update.effective_user)
-    """
+    """Gets a user profile from the DB or creates one if it doesn't exist."""
     user_id = user_data.id
     first_name = user_data.first_name
     last_name = user_data.last_name
     username = user_data.username
     now_iso = datetime.datetime.now().isoformat()
-    
     try:
         with _get_db_connection() as conn:
             cursor = conn.cursor()
-            
             cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             user = cursor.fetchone()
             
             if user is None:
-                # กรณีเป็นผู้ใช้ใหม่: สร้างโปรไฟล์
+                # New user
                 print(f"[Memory] New user detected: {first_name} (ID: {user_id})")
-                cursor.execute("""
-                    INSERT INTO users (user_id, first_name, last_name, username, first_seen, last_seen, summary)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (user_id, first_name, last_name, username, now_iso, now_iso, ''))
+                cursor.execute(
+                    "INSERT INTO users (user_id, first_name, last_name, username, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
+                    (user_id, first_name, last_name, username, now_iso, now_iso)
+                )
                 status = "new_user"
             else:
-                # กรณีเป็นผู้ใช้เก่า: อัปเดตข้อมูลล่าสุด
+                # Returning user
                 print(f"[Memory] Returning user: {user['first_name']} (ID: {user['user_id']})")
-                cursor.execute("""
-                    UPDATE users SET last_seen = ?, first_name = ?, last_name = ?, username = ?
-                    WHERE user_id = ?
-                """, (now_iso, first_name, last_name, username, user_id))
+                cursor.execute(
+                    "UPDATE users SET last_seen = ?, first_name = ?, last_name = ?, username = ? WHERE user_id = ?",
+                    (now_iso, first_name, last_name, username, user_id)
+                )
                 status = "returning_user"
             
             conn.commit()
@@ -120,116 +114,39 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             updated_user_profile = dict(cursor.fetchone())
 
             return {"status": status, "profile": updated_user_profile}
-
     except sqlite3.Error as e:
         print(f"[Memory] Database error in get_or_create_user: {e}")
         return None
 
-def append_message(user_id: int, role: str, content: str) -> None:
-    """เพิ่มข้อความใหม่ลงในประวัติการสนทนาของผู้ใช้"""
+# --- ✅ ฟังก์ชันใหม่สำหรับจัดการ Location ---
+
+def update_user_location(user_id: int, lat: float, lon: float) -> bool:
+    """อัปเดตตำแหน่งล่าสุดของผู้ใช้ลงในฐานข้อมูล"""
     try:
         with _get_db_connection() as conn:
             cursor = conn.cursor()
-            timestamp = int(datetime.datetime.now().timestamp())
-            cursor.execute(
-                "INSERT INTO messages (user_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (user_id, role, (content or "").strip(), timestamp)
-            )
+            cursor.execute("UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id))
             conn.commit()
+            print(f"[Memory] Updated location for user {user_id} to (Lat: {lat}, Lon: {lon})")
+            return True
     except sqlite3.Error as e:
-        print(f"[Memory] Failed to append message for user {user_id}: {e}")
+        print(f"[Memory] Failed to update location for user {user_id}: {e}")
+        return False
 
-def get_summary(user_id: int) -> str:
-    """ดึงข้อมูลสรุป (summary) ของผู้ใช้"""
+def get_user_location(user_id: int) -> Optional[Dict[str, float]]:
+    """ดึงตำแหน่งล่าสุดของผู้ใช้จากฐานข้อมูล"""
     try:
         with _get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT summary FROM users WHERE user_id = ?", (user_id,))
-            result = cursor.fetchone()
-            return result['summary'] if result else ""
+            cursor.execute("SELECT latitude, longitude FROM users WHERE user_id = ?", (user_id,))
+            loc = cursor.fetchone()
+            if loc and loc['latitude'] is not None and loc['longitude'] is not None:
+                return {"lat": loc['latitude'], "lon": loc['longitude']}
+            return None
     except sqlite3.Error as e:
-        print(f"[Memory] Failed to get summary for user {user_id}: {e}")
-        return ""
+        print(f"[Memory] Failed to get location for user {user_id}: {e}")
+        return None
 
-def set_summary(user_id: int, summary: str) -> None:
-    """ตั้งค่าข้อมูลสรุป (summary) ของผู้ใช้"""
-    try:
-        with _get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET summary = ? WHERE user_id = ?", ((summary or "").strip(), user_id))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(f"[Memory] Failed to set summary for user {user_id}: {e}")
-
-def get_recent_context(user_id: int, max_items: int = CTX_MAX_ITEMS, max_chars: int = CTX_MAX_CHARS) -> List[Dict[str, str]]:
-    """ดึงประวัติการสนทนาล่าสุดเพื่อใช้เป็น context"""
-    try:
-        with _get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT role, content FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (user_id, max_items)
-            )
-            msgs = cursor.fetchall()
-
-            out: List[Dict[str, str]] = []
-            total_chars = 0
-            for m in msgs:
-                content = m["content"]
-                total_chars += len(content)
-                if total_chars > max_chars:
-                    break
-                out.append({"role": m["role"], "content": content})
-            return list(reversed(out))
-    except sqlite3.Error as e:
-        print(f"[Memory] Failed to get recent context for user {user_id}: {e}")
-        return []
-
-def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]) -> None:
-    """
-    หากประวัติการสนทนายาวเกินไป จะทำการสรุปส่วนเก่าและเก็บไว้เฉพาะส่วนล่าสุด
-    """
-    try:
-        with _get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,))
-            msg_count = cursor.fetchone()[0]
-
-            if msg_count <= MAX_HISTORY_ITEMS:
-                return
-
-            print(f"[Memory] User {user_id} has {msg_count} messages, pruning...")
-
-            # 1. ดึงข้อความส่วนที่จะสรุป (ส่วนที่เก่าที่สุด)
-            limit = msg_count - KEEP_TAIL_AFTER_SUM
-            cursor.execute(
-                "SELECT role, content, message_id FROM messages WHERE user_id = ? ORDER BY timestamp ASC LIMIT ?",
-                (user_id, limit)
-            )
-            part_to_summarize = cursor.fetchall()
-            
-            if not part_to_summarize:
-                return
-
-            text_to_summarize = "\n".join(f"[{m['role']}] {m['content']}" for m in part_to_summarize)
-            
-            # 2. สร้าง summary ใหม่
-            previous_summary = get_summary(user_id)
-            prompt_for_summary = (
-                f"{('[สรุปเดิม] ' + previous_summary) if previous_summary else ''}\n"
-                f"[เนื้อหาใหม่ที่จะสรุปต่อ] {text_to_summarize}"
-            )
-            new_summary = summarize_func(prompt_for_summary)
-            set_summary(user_id, new_summary)
-            
-            # 3. ลบข้อความเก่าที่สรุปไปแล้วออกจากฐานข้อมูล
-            ids_to_delete = tuple(m['message_id'] for m in part_to_summarize)
-            # ใช้ 'IN' clause เพื่อลบหลายรายการพร้อมกัน
-            cursor.execute(f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in ids_to_delete)})", ids_to_delete)
-            
-            conn.commit()
-            print(f"[Memory] User {user_id} pruned. New summary saved. {len(ids_to_delete)} messages deleted.")
-            
-    except sqlite3.Error as e:
-        print(f"[Memory] Error during prune/summarize for user {user_id}: {e}")
+# --- (ฟังก์ชันอื่นๆ ที่เหลือให้คงไว้เหมือนเดิม) ---
+# append_message, get_summary, set_summary, get_recent_context, prune_and_maybe_summarize
+# (เพื่อความกระชับ ผมขอละโค้ดส่วนนี้ แต่ในไฟล์จริงของคุณต้องมีอยู่นะครับ)
