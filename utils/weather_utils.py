@@ -27,11 +27,8 @@ def get_weather_forecast_from_google(lat: float, lon: float) -> str:
     """
     print(f"[Weather_Utils] Searching for weather at Lat: {lat}, Lon: {lon}")
     query = f"weather at latitude {lat} longitude {lon}"
-
     try:
-        # ✅ ใช้ชื่อที่ถูกต้อง "Google Search"
         search_results = Google Search(queries=[query])
-
         if search_results and search_results[0].results and search_results[0].results[0].snippet:
             weather_data = search_results[0].results[0].snippet
             message = (
@@ -43,9 +40,7 @@ def get_weather_forecast_from_google(lat: float, lon: float) -> str:
             )
             return message
         else:
-            print(f"[Weather_Utils] No weather forecast found for ({lat}, {lon})")
             return "ขออภัยครับ ไม่สามารถดึงข้อมูลพยากรณ์อากาศสำหรับตำแหน่งนี้ได้ในขณะนี้"
-
     except Exception as e:
         print(f"[Weather_Utils] An error occurred while fetching weather info: {e}")
         return "❌ ขออภัยครับ เกิดข้อผิดพลาดทางเทคนิคในการดึงข้อมูลสภาพอากาศ"
