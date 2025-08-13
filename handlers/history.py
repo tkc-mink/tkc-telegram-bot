@@ -1,30 +1,24 @@
 # handlers/history.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Dict, Any
+from utils.memory_store import get_user_chat_history
+from utils.telegram_api import send_message
+import datetime
 
-from utils.message_utils import send_message
-from utils.history_utils import get_user_history
-
-
-def handle_history(chat_id: int, user_text: str) -> None:
-    """
-    แสดงประวัติคำถาม/คำตอบของผู้ใช้คนนี้ล่าสุด 10 รายการ
-    """
-    try:
-        user_id = str(chat_id)
-        logs = get_user_history(user_id, limit=10) or []
-
-        if not logs:
-            send_message(chat_id, "🗒️ คุณยังไม่มีประวัติการใช้งานเลยครับ")
-            return
-
-        lines = []
-        for item in logs:
-            q = item.get("q", "")
-            a = item.get("a", "")
-            dt = item.get("date", "")
-            lines.append(f"• [{dt}] {q}\n  └ {a}")
-
-        text = "📜 <b>ประวัติย้อนหลัง (ล่าสุด 10 รายการ)</b>\n" + "\n".join(lines)
-        send_message(chat_id, text, parse_mode="HTML")
-    except Exception as e:
-        send_message(chat_id, f"❌ ไม่สามารถดึงประวัติได้: {e}")
+def handle_history(user_info: Dict[str, Any], user_text: str) -> None:
+    chat_id, user_id = user_info['profile']['user_id'], user_info['profile']['user_id']
+    history = get_user_chat_history(user_id)
+    if not history:
+        send_message(chat_id, "ยังไม่มีประวัติการสนทนาครับ")
+        return
+    
+    message = "**ประวัติการสนทนา 10 รายการล่าสุด:**\n\n"
+    for item in reversed(history):
+        ts = datetime.datetime.fromisoformat(item['timestamp']).strftime('%H:%M') if 'timestamp' in item else ''
+        role = "คุณ" if item['role'] == 'user' else "ผม"
+        content = item['content']
+        if len(content) > 100: content = content[:100] + "..."
+        message += f"`{ts}` **{role}:** {content}\n"
+        
+    send_message(chat_id, message, parse_mode="Markdown")
