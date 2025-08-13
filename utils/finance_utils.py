@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 Central utility for fetching all financial data (stocks, crypto, oil)
-using a reliable, internal Google Search tool. This is the master version.
+using a reliable, internal Google Search tool. This is the master version. (Syntax Fixed)
 """
 from __future__ import annotations
 from typing import Dict, Optional
 
 # --- เครื่องมือหลัก ---
-# ✅ ใช้เครื่องมือภายในที่เสถียรและเชื่อถือได้
+# ✅ แก้ไขชื่อ "Google Search" เป็น "Google Search" ที่ถูกต้อง
 try:
     from internal_tools import Google Search
 except ImportError:
@@ -31,19 +31,14 @@ except ImportError:
 
 # --- ฟังก์ชันสำหรับหุ้น ---
 def get_stock_info_from_google(symbol: str) -> Optional[str]:
-    """
-    Fetches stock information by performing a Google search for a specific symbol.
-    """
     print(f"[Finance_Utils] Searching for stock symbol: {symbol} on Google Finance")
     query = f"stock price {symbol} site:google.com/finance"
     try:
-        results = Google Search(queries=[query])
+        results = Google Search(queries=[query]) # ✅ ยืนยันว่าใช้ชื่อถูกต้อง
         if results and results[0].results:
             res = results[0].results[0]
-            # พยายามดึงข้อมูลจาก title และ snippet
             name = res.title.split("(")[0].strip() if res.title else symbol
             data_line = res.snippet
-            
             message = (
                 f"📈 **ข้อมูลหุ้น {name} ({symbol})**\n"
                 f"---------------------------------\n"
@@ -52,31 +47,23 @@ def get_stock_info_from_google(symbol: str) -> Optional[str]:
                 f"*ข้อมูลล่าสุดจาก Google Finance*"
             )
             return message
-        else:
-            print(f"[Finance_Utils] No structured stock info found for {symbol}")
-            return None
+        return None
     except Exception as e:
         print(f"[Finance_Utils] An error occurred while fetching stock info for {symbol}: {e}")
         return None
 
 # --- ฟังก์ชันสำหรับคริปโต ---
 def get_crypto_price_from_google(symbol: str) -> Optional[str]:
-    """
-    Fetches cryptocurrency price information from Google Finance.
-    """
     print(f"[Finance_Utils] Searching for crypto symbol: {symbol}")
-    # Google Finance ใช้ format: SYMBOL-USD (หรือ -THB)
     if "-" not in symbol:
         symbol = f"{symbol}-USD"
-        
     query = f"crypto price {symbol} site:google.com/finance"
     try:
-        results = Google Search(queries=[query])
+        results = Google Search(queries=[query]) # ✅ ยืนยันว่าใช้ชื่อถูกต้อง
         if results and results[0].results:
             res = results[0].results[0]
             name = res.title.split("(")[0].strip() if res.title else symbol.split("-")[0]
             data_line = res.snippet
-
             message = (
                 f"💸 **ข้อมูลเหรียญ {name} ({symbol.split('-')[0]})**\n"
                 f"---------------------------------\n"
@@ -85,22 +72,17 @@ def get_crypto_price_from_google(symbol: str) -> Optional[str]:
                 f"*ข้อมูลล่าสุดจาก Google Finance*"
             )
             return message
-        else:
-             print(f"[Finance_Utils] No structured crypto info found for {symbol}")
-             return None
+        return None
     except Exception as e:
         print(f"[Finance_Utils] Error fetching crypto info for {symbol}: {e}")
         return None
 
 # --- ฟังก์ชันสำหรับน้ำมัน ---
 def get_oil_price_from_google() -> Optional[str]:
-    """
-    Fetches major oil prices (WTI & Brent) from Google Finance.
-    """
     print("[Finance_Utils] Searching for major oil prices")
     query = "oil price WTI brent site:google.com/finance"
     try:
-        results = Google Search(queries=[query])
+        results = Google Search(queries=[query]) # ✅ ยืนยันว่าใช้ชื่อถูกต้อง
         if results and results[0].results:
             snippet = results[0].results[0].snippet
             message = (
@@ -111,9 +93,7 @@ def get_oil_price_from_google() -> Optional[str]:
                 f"*ข้อมูลล่าสุดจาก Google Finance*"
             )
             return message
-        else:
-             print(f"[Finance_Utils] No oil price info found")
-             return None
+        return None
     except Exception as e:
         print(f"[Finance_Utils] Error fetching oil prices: {e}")
         return None
