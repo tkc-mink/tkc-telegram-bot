@@ -1,36 +1,40 @@
 # handlers/faq.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Dict, Any
+from utils.memory_store import add_or_update_faq, get_faq_answer, get_all_faqs
+from utils.telegram_api import send_message
 
-from utils.faq_utils import get_faq_list, add_faq
-from utils.message_utils import send_message
+def handle_faq(user_info: Dict[str, Any], user_text: str) -> None:
+    chat_id, user_id = user_info['profile']['user_id'], user_info['profile']['user_id']
+    parts = user_text.split(maxsplit=2)
+    command = parts[0].lower()
 
-
-def handle_faq(chat_id: int, user_text: str) -> None:
-    """
-    ใช้:
-    - /faq                  -> แสดง FAQ ทั้งหมด
-    - /add_faq <คำถาม>     -> เพิ่มคำถามเข้ารายการ FAQ
-    """
-    try:
-        text = (user_text or "").strip()
-
-        if text.startswith("/add_faq"):
-            q = text.replace("/add_faq", "", 1).strip()
-            if not q:
-                send_message(chat_id, "โปรดพิมพ์คำถามต่อท้ายคำสั่ง เช่น /add_faq วิธีเช็คสภาพอากาศ")
-                return
-
-            add_faq(q)
-            send_message(chat_id, f"✅ เพิ่มคำถามใน FAQ: {q}")
+    # /add_faq <keyword> <answer>
+    if command == "/add_faq":
+        if len(parts) < 3:
+            send_message(chat_id, "วิธีใช้: /add_faq <คำถาม> <คำตอบ>")
             return
-
-        # แสดงรายการ FAQ ทั้งหมด
-        faq = get_faq_list()
-        if faq:
-            msg = "📚 <b>FAQ (คำถามที่พบบ่อย)</b>:\n" + "\n".join(f"• {q}" for q in faq)
+        keyword, answer = parts[1], parts[2]
+        if add_or_update_faq(keyword, answer, user_id):
+            send_message(chat_id, f"✅ บันทึก FAQ สำหรับคำว่า '{keyword}' เรียบร้อยแล้วครับ")
         else:
-            msg = "ยังไม่มีรายการ FAQ ครับ"
-        send_message(chat_id, msg, parse_mode="HTML")
+            send_message(chat_id, "❌ เกิดข้อผิดพลาดในการบันทึก FAQ")
+        return
 
-    except Exception as e:
-        send_message(chat_id, f"❌ จัดการ FAQ ไม่สำเร็จ: {e}")
+    # /faq <keyword>
+    if len(parts) > 1:
+        keyword = parts[1]
+        answer = get_faq_answer(keyword)
+        if answer:
+            send_message(chat_id, f"💡 **คำตอบสำหรับ '{keyword}':**\n\n{answer}")
+        else:
+            send_message(chat_id, f"❓ ไม่พบคำตอบสำหรับ '{keyword}' ครับ")
+    # /faq (list all)
+    else:
+        faqs = get_all_faqs()
+        if not faqs:
+            send_message(chat_id, "ยังไม่มี FAQ ในระบบครับ ใช้ /add_faq เพื่อเพิ่มได้เลย")
+            return
+        message = "**รายการ FAQ ทั้งหมด:**\n" + "\n".join(f"- `{item['keyword']}`" for item in faqs)
+        send_message(chat_id, message, parse_mode="Markdown")
