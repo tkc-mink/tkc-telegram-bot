@@ -7,12 +7,10 @@ This version is designed to be robust and keyless. (Syntax Fixed)
 from __future__ import annotations
 from typing import Optional
 
-# --- ✅ ส่วนที่เราแก้ไข ---
-# เปลี่ยนชื่อ "Google Search" เป็น "Google Search" ที่ถูกต้องตามไวยากรณ์ Python
+# ✅ แก้ไขชื่อ "Google Search" เป็น "Google Search" ที่ถูกต้อง
 try:
     from internal_tools import Google Search
 except ImportError:
-    # ส่วนนี้สำหรับจำลองการทำงานเผื่อกรณีที่ tool ไม่พร้อมใช้งาน
     print("WARNING: 'internal_tools.Google Search' not found. Using mock data for weather.")
     class MockSearchResult:
         def __init__(self, snippet): self.snippet = snippet
