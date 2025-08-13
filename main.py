@@ -1,4 +1,3 @@
-# main.py
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -7,9 +6,13 @@ import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify, abort
 
+# --- ส่วนที่เราแก้ไข ---
+# 1. เพิ่มการ import init_db จาก memory_store ที่เราสร้างขึ้นใหม่
+from utils.memory_store import init_db
+# --------------------
+
 from handlers.main_handler import handle_message
 from utils.backup_utils import restore_all, setup_backup_scheduler
-from utils.telegram_api import send_message   # ✅ เพิ่มเพื่อยิงตอบโดยตรง
 from settings import SUPPORTED_FORMATS
 
 app = Flask(__name__)
@@ -23,12 +26,18 @@ def log_event(msg: str):
     print(f"[{now}] {msg}", file=sys.stderr, flush=True)
 
 # ======================
-# Init: Restore & Schedule Backup
+# Init: DB, Restore & Schedule Backup
 # ======================
 def _safe_init():
     try:
+        # --- ส่วนที่เราแก้ไข ---
+        # 2. สั่งให้สร้าง/เตรียมฐานข้อมูล SQLite ของเราเป็นอันดับแรก
+        log_event("[INIT] Initializing database...")
+        init_db()
+        # --------------------
+
         log_event("[INIT] Attempting restore all data from Google Drive...")
-        restore_all()
+        restore_all() # โค้ดส่วนจัดการ Backup เดิมของคุณยังคงทำงานได้ตามปกติ
         setup_backup_scheduler()
         log_event("[INIT] Auto restore + backup scheduler started")
     except Exception as e:
@@ -88,27 +97,14 @@ def webhook():
         snip = snip[:1000] + " ..."
     log_event(f"Telegram Data: {snip}")
 
-    # --- ตอบกลับทันทีแบบ safe เพื่อพิสูจน์ทางเดิน ---
-    try:
-        if "message" in data:
-            m = data["message"]
-            chat_id = m["chat"]["id"]
-            text_in = (m.get("text") or "").strip()
-            if text_in.startswith("/start"):
-                send_message(chat_id, "พร้อมทำงานครับ ✅ (ตอบจาก main.py)\nพิมพ์ /ping เพื่อตรวจ หรือพิมพ์อะไรก็ได้")
-            elif text_in.startswith("/ping"):
-                send_message(chat_id, "pong (จาก main.py)")
-            elif text_in:
-                send_message(chat_id, f"รับทราบ: {text_in}")
-    except Exception as e:
-        log_event(f"❌ Direct reply error: {e}\n{traceback.format_exc()}")
-
-    # --- ส่งต่อให้ handler หลักของคุณตามเดิม ---
+    # --- ส่งต่อให้ handler หลักของคุณทันที ---
+    # เราได้ย้ายส่วนตอบกลับเบื้องต้นออกจากที่นี่ เพื่อให้ handler จัดการทั้งหมด
     try:
         handle_message(data)
     except Exception as e:
         log_event(f"❌ Handler error: {e}\n{traceback.format_exc()}")
 
+    # ตอบกลับ Telegram ทันทีว่าได้รับข้อมูลแล้ว เพื่อไม่ให้ Telegram ส่งซ้ำ
     return jsonify({"status": "ok"}), 200
 
 
