@@ -1,11 +1,9 @@
 # utils/memory_store.py
 # -*- coding: utf-8 -*-
 """
-Persistent Memory Store using SQLite (Final Version)
+Persistent Memory Store using SQLite (Master Version)
 - Stores permanent profiles for users (including location).
-- Stores conversation history.
-- Stores user reviews.
-- Stores user favorites.
+- Stores conversation history, reviews, and favorites.
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Callable
@@ -47,7 +45,6 @@ def init_db():
     try:
         with _get_db_connection() as conn:
             cursor = conn.cursor()
-
             # Table 1: Users
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
@@ -58,7 +55,6 @@ def init_db():
             """)
             _add_column_if_not_exists(cursor, 'users', 'latitude', 'REAL')
             _add_column_if_not_exists(cursor, 'users', 'longitude', 'REAL')
-
             # Table 2: Messages
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
@@ -68,8 +64,7 @@ def init_db():
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id_timestamp ON messages (user_id, timestamp);")
-
-            # ✅ Table 3: Reviews
+            # Table 3: Reviews
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reviews (
                     review_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
@@ -77,8 +72,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-
-            # ✅ Table 4: Favorites
+            # Table 4: Favorites
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS favorites (
                     favorite_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
@@ -86,16 +80,14 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            
             conn.commit()
-            print("[Memory] Database initialized successfully (Final Version with all features).")
+            print("[Memory] Database initialized successfully (Master Version).")
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
 # --- User Profile & Location Functions ---
 
 def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    # (โค้ดส่วนนี้เหมือนเดิม)
     user_id, first_name, last_name, username = user_data.id, user_data.first_name, user_data.last_name, user_data.username
     now_iso = datetime.datetime.now().isoformat()
     try:
@@ -118,7 +110,6 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
 def update_user_location(user_id: int, lat: float, lon: float) -> bool:
-    # (โค้ดส่วนนี้เหมือนเดิม)
     try:
         with _get_db_connection() as conn:
             conn.execute("UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id))
@@ -128,10 +119,9 @@ def update_user_location(user_id: int, lat: float, lon: float) -> bool:
         print(f"[Memory] DB error updating location: {e}")
         return False
 
-# --- Chat History & Summary Functions ---
+# --- Chat History & Context Functions ---
 
 def append_message(user_id: int, role: str, content: str) -> None:
-    # (โค้ดส่วนนี้เหมือนเดิม)
     try:
         with _get_db_connection() as conn:
             ts = int(datetime.datetime.now().timestamp())
@@ -141,61 +131,114 @@ def append_message(user_id: int, role: str, content: str) -> None:
     except sqlite3.Error as e:
         print(f"[Memory] DB error appending message: {e}")
 
-# (ฟังก์ชัน get_summary, set_summary, get_recent_context, prune_and_maybe_summarize ให้คงไว้เหมือนเดิม)
+def get_recent_context(user_id: int, max_items: int = CTX_MAX_ITEMS, max_chars: int = CTX_MAX_CHARS) -> List[Dict[str, str]]:
+    try:
+        with _get_db_connection() as conn:
+            msgs = conn.execute("SELECT role, content FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, max_items)).fetchall()
+            out, total_chars = [], 0
+            for m in msgs:
+                content = m["content"]
+                total_chars += len(content)
+                if total_chars > max_chars: break
+                out.append({"role": m["role"], "content": content})
+            return list(reversed(out))
+    except sqlite3.Error:
+        return []
 
-# --- ✅ Review Functions ---
+def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict]:
+    try:
+        with _get_db_connection() as conn:
+            history = []
+            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall():
+                row_dict = dict(row)
+                row_dict['timestamp'] = datetime.datetime.fromtimestamp(row_dict['timestamp']).isoformat()
+                history.append(row_dict)
+            return history
+    except sqlite3.Error:
+        return []
+
+# --- Summarization Functions ---
+
+def get_summary(user_id: int) -> str:
+    try:
+        with _get_db_connection() as conn:
+            res = conn.execute("SELECT summary FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            return res['summary'] if res else ""
+    except sqlite3.Error:
+        return ""
+
+def set_summary(user_id: int, summary: str) -> None:
+    try:
+        with _get_db_connection() as conn:
+            conn.execute("UPDATE users SET summary = ? WHERE user_id = ?", ((summary or "").strip(), user_id))
+            conn.commit()
+    except sqlite3.Error:
+        pass
+
+def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]) -> None:
+    try:
+        with _get_db_connection() as conn:
+            msg_count = conn.execute("SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,)).fetchone()[0]
+            if msg_count <= MAX_HISTORY_ITEMS: return
+
+            limit = msg_count - KEEP_TAIL_AFTER_SUM
+            part_to_summarize = conn.execute("SELECT role, content, message_id FROM messages WHERE user_id = ? ORDER BY timestamp ASC LIMIT ?", (user_id, limit)).fetchall()
+            if not part_to_summarize: return
+
+            text_to_summarize = "\n".join(f"[{m['role']}] {m['content']}" for m in part_to_summarize)
+            previous_summary = get_summary(user_id)
+            prompt = f"{('[สรุปเดิม] ' + previous_summary) if previous_summary else ''}\n[เนื้อหาใหม่ที่จะสรุปต่อ] {text_to_summarize}"
+            new_summary = summarize_func(prompt)
+            set_summary(user_id, new_summary)
+            
+            ids_to_delete = tuple(m['message_id'] for m in part_to_summarize)
+            conn.execute(f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in ids_to_delete)})", ids_to_delete)
+            conn.commit()
+    except sqlite3.Error:
+        pass
+
+# --- Review Functions ---
 
 def add_review(user_id: int, rating: int, comment: Optional[str] = None) -> bool:
-    """Adds a new review to the database."""
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            conn.execute("INSERT INTO reviews (user_id, rating, comment, timestamp) VALUES (?, ?, ?, ?)",
-                           (user_id, rating, comment, now_iso))
+            conn.execute("INSERT INTO reviews (user_id, rating, comment, timestamp) VALUES (?, ?, ?, ?)", (user_id, rating, comment, now_iso))
             conn.commit()
             return True
-    except sqlite3.Error as e:
-        print(f"[Memory] DB error adding review: {e}")
+    except sqlite3.Error:
         return False
 
 def get_last_review_timestamp(user_id: int) -> Optional[str]:
-    """Gets the timestamp of the last review from a user."""
     try:
         with _get_db_connection() as conn:
             res = conn.execute("SELECT timestamp FROM reviews WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1", (user_id,)).fetchone()
             return res['timestamp'] if res else None
-    except sqlite3.Error as e:
-        print(f"[Memory] DB error getting last review ts: {e}")
+    except sqlite3.Error:
         return None
 
-# --- ✅ Favorite Functions ---
+# --- Favorite Functions ---
 
 def add_favorite(user_id: int, content: str) -> bool:
-    """Adds a new favorite item to the database."""
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            conn.execute("INSERT INTO favorites (user_id, content, timestamp) VALUES (?, ?, ?)",
-                           (user_id, content, now_iso))
+            conn.execute("INSERT INTO favorites (user_id, content, timestamp) VALUES (?, ?, ?)", (user_id, content, now_iso))
             conn.commit()
             return True
-    except sqlite3.Error as e:
-        print(f"[Memory] DB error adding favorite: {e}")
+    except sqlite3.Error:
         return False
 
 def get_favorites_by_user(user_id: int, limit: int = 10) -> List[Dict]:
-    """Gets a list of favorite items for a user."""
     try:
         with _get_db_connection() as conn:
             return [dict(row) for row in conn.execute(
-                "SELECT favorite_id, content FROM favorites WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?",
-                (user_id, limit)
+                "SELECT favorite_id, content FROM favorites WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)
             ).fetchall()]
     except sqlite3.Error:
         return []
 
 def remove_favorite_by_id(favorite_id: int, user_id: int) -> bool:
-    """Removes a favorite item by its ID, ensuring user ownership."""
     try:
         with _get_db_connection() as conn:
             res = conn.execute("DELETE FROM favorites WHERE favorite_id = ? AND user_id = ?", (favorite_id, user_id))
