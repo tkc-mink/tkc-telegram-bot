@@ -1,36 +1,24 @@
 # handlers/crypto.py
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Dict, Any
+from utils.finance_utils import get_crypto_price_from_google
+from utils.telegram_api import send_message
 
-from utils.serp_utils import get_crypto_price
-from utils.message_utils import send_message
-
-
-def _pick_symbol_from_text(text: str) -> str:
-    t = (text or "").strip().lower()
-    # เดารหัสเหรียญจากข้อความผู้ใช้
-    if "eth" in t or "ethereum" in t:
-        return "ETH"
-    if "doge" in t:
-        return "DOGE"
-    if "bnb" in t:
-        return "BNB"
-    if "sol" in t or "solana" in t:
-        return "SOL"
-    # ดีฟอลต์เป็น BTC
-    return "BTC"
-
-
-def handle_crypto(chat_id: int, user_text: str) -> None:
-    """
-    ตัวอย่างข้อความ:
-    - /crypto
-    - /crypto btc
-    - ราคา eth วันนี้
-    """
+def handle_crypto(user_info: Dict[str, Any], user_text: str) -> None:
+    chat_id, user_name = user_info['profile']['user_id'], user_info['profile']['first_name']
     try:
-        parts = (user_text or "").strip().split()
-        symbol = parts[1].upper() if len(parts) > 1 else _pick_symbol_from_text(user_text)
-        reply = get_crypto_price(symbol)  # ควรคืน string พร้อมจัดรูปแบบแล้ว
-        send_message(chat_id, reply, parse_mode="HTML")
+        parts = user_text.split()
+        if len(parts) < 2:
+            send_message(chat_id, f"กรุณาระบุสัญลักษณ์เหรียญด้วยครับ เช่น `/crypto BTC`")
+            return
+        symbol = parts[1].upper()
+        send_message(chat_id, f"🔎 กำลังค้นหาราคาเหรียญ {symbol}...")
+        price_message = get_crypto_price_from_google(symbol)
+        if price_message:
+            send_message(chat_id, price_message, parse_mode="Markdown")
+        else:
+            send_message(chat_id, f"ขออภัยครับ ไม่พบข้อมูลสำหรับเหรียญ '{symbol}'")
     except Exception as e:
-        send_message(chat_id, f"❌ ดึงราคาเหรียญไม่สำเร็จ: {e}")
+        print(f"[handle_crypto] ERROR: {e}")
+        send_message(chat_id, f"❌ ขออภัยครับ เกิดข้อผิดพลาดในการดึงข้อมูลเหรียญ")
