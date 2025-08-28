@@ -1,9 +1,8 @@
 # handlers/main_handler.py
 # -*- coding: utf-8 -*-
 """
-Main Message Handler (The Bot's Brain) - V2.1 (SyntaxError Fix)
-- Fully integrated with persistent memory for user profiles and location.
-- Handles routing for all commands and general conversation.
+Main Message Handler (The Bot's Brain) - Final Version
+- Fully integrated with all new utilities and the function calling engine.
 """
 from __future__ import annotations
 from typing import Dict, Any, Callable
@@ -25,6 +24,7 @@ from handlers.faq import handle_faq
 from handlers.backup_status import handle_backup_status
 from handlers.search import handle_gemini_search, handle_gemini_image_generation
 from handlers.image import handle_image
+from handlers.favorite import handle_favorite # ✅ เพิ่ม favorite handler
 
 # ===== Utility Imports =====
 from utils.telegram_api import send_message as tg_send_message
@@ -64,6 +64,9 @@ COMMAND_HANDLERS: Dict[str, Callable] = {
     "/report": handle_report, "/summary": handle_report,
     "/faq": handle_faq, "/add_faq": handle_faq, "/start": _handle_start,
     "/help": lambda ui, txt: _send_help(ui['profile']['user_id']),
+    "/favorite": handle_favorite, "/favorite_add": handle_favorite, 
+    "/favorite_list": handle_favorite, "/favorite_remove": handle_favorite,
+
     "ราคาทอง": handle_gold, "อากาศ": handle_weather, "ค้นหา": handle_gemini_search,
     "สร้างภาพ": handle_gemini_image_generation, "backup ล่าสุด": handle_backup_status,
     "ชื่ออะไร": _handle_whoami, "คุณคือใคร": _handle_whoami,
@@ -80,8 +83,7 @@ def handle_message(data: Dict[str, Any]) -> None:
 
         chat_id = msg.get("chat", {}).get("id")
         user_data = msg.get("from")
-        if not chat_id or not user_data:
-            return
+        if not chat_id or not user_data: return
 
         user_info = get_or_create_user(user_data)
         if not user_info:
@@ -109,7 +111,11 @@ def handle_message(data: Dict[str, Any]) -> None:
         append_message(user_id, "user", user_text)
         ctx = get_recent_context(user_id)
         summary = get_summary(user_id)
-        reply = process_with_function_calling(user_text, ctx=ctx, conv_summary=summary)
+        
+        # --- ✅ **ส่วนที่แก้ไข** ---
+        # ส่ง user_info เข้าไปด้วยเพื่อให้ function_calling engine ทำงานได้ถูกต้อง
+        reply = process_with_function_calling(user_info, user_text, ctx=ctx, conv_summary=summary)
+        
         tg_send_message(chat_id, reply)
         append_message(user_id, "assistant", reply)
         prune_and_maybe_summarize(user_id, summarize_func=summarize_text_with_gpt)
@@ -134,7 +140,6 @@ def _handle_location_message(user_info: Dict[str, Any], msg: Dict[str, Any]) -> 
 
 def _send_help(chat_id: int) -> None:
     """Sends a help message with a list of available commands."""
-    # ✅ **เวอร์ชันแก้ไข Syntax Error แล้ว**
     help_text = (
         "**รายการคำสั่งที่ใช้ได้ครับ**\n\n"
         "**ความสามารถหลัก:**\n"
@@ -147,8 +152,9 @@ def _send_help(chat_id: int) -> None:
         "• `/stock <ชื่อหุ้น>` - ราคาหุ้น\n"
         "• `/crypto <ชื่อเหรียญ>` - ราคาเหรียญดิจิทัล\n"
         "• `/oil` - ราคาน้ำมัน\n"
-        "• `/weather` - พยากรณ์อากาศ (จะใช้ตำแหน่งล่าสุดที่คุณแชร์)\n"
-        "• `/review` - รีวิวการทำงานของผม\n\n"
+        "• `/weather` - พยากรณ์อากาศ\n"
+        "• `/review` - รีวิวการทำงานของผม\n"
+        "• `/favorite_list` - ดูรายการโปรด\n\n"
         "*คุณสามารถพิมพ์คุยกับผมได้เลยทุกเรื่องนะครับ ผมจำได้ว่าเราคุยอะไรกันไว้บ้าง*"
     )
     tg_send_message(chat_id, help_text, parse_mode="Markdown")
