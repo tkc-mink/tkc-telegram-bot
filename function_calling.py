@@ -1,8 +1,8 @@
 # src/function_calling.py
 # -*- coding: utf-8 -*-
 """
-Function Calling Engine (V2 - Plan B Aligned)
-This module is updated to use the new, robust web scraping utilities.
+Function Calling Engine (Final Version)
+This module is now fully aligned with the API-based utilities.
 """
 import json
 from typing import List, Dict, Any, Optional
@@ -10,14 +10,14 @@ from typing import List, Dict, Any, Optional
 import google.generativeai as genai
 from utils.gemini_client import MODEL_PRO, generate_text
 
-# --- ✅ Tool Function Imports (อัปเกรดเป็นเวอร์ชัน Plan B ทั้งหมด) ---
-from utils.weather_utils import get_weather_forecast_from_scraping
+# --- ✅ Tool Function Imports (อัปเกรดเป็นเวอร์ชัน API ทั้งหมด) ---
+from utils.weather_utils import get_weather_forecast # <-- แก้ไขชื่อ import ให้ถูกต้อง
 from utils.finance_utils import (
     get_stock_info_from_google,
     get_crypto_price_from_google,
     get_oil_price_from_google
 )
-from utils.gold_utils import get_gold_price # สมมติว่าไฟล์นี้ยังทำงานได้ดี
+from utils.gold_utils import get_gold_price
 from utils.news_utils import get_news
 from utils.lottery_utils import get_lottery_result
 
@@ -64,11 +64,11 @@ def function_dispatch(user_info: Dict[str, Any], fname: str, args: Dict[str, Any
     """Dispatches the function call to the correct utility."""
     try:
         if fname == "get_weather_forecast":
-            # ฟังก์ชันใหม่ต้องการ lat/lon ซึ่งอยู่ใน user_info
             profile = user_info.get('profile', {})
             lat, lon = profile.get('latitude'), profile.get('longitude')
-            if lat and lon:
-                return get_weather_forecast_from_scraping(lat, lon)
+            if lat is not None and lon is not None:
+                # <-- แก้ไขให้เรียกใช้ฟังก์ชันที่ถูกต้อง
+                return get_weather_forecast(lat, lon)
             else:
                 return "ผมยังไม่มีข้อมูลตำแหน่งของคุณครับ กรุณาแชร์ตำแหน่งแล้วลองอีกครั้ง"
         
@@ -95,7 +95,6 @@ def process_with_function_calling(
         return "❌ ขออภัยครับ ระบบ Function Calling ไม่พร้อมใช้งานในขณะนี้ครับ"
 
     try:
-        # สร้าง Prompt ที่สมบูรณ์
         full_prompt = [SYSTEM_PROMPT]
         if conv_summary: full_prompt.append(f"\n[บทสรุปการสนทนาก่อนหน้านี้]:\n{conv_summary}")
         if ctx:
@@ -104,23 +103,17 @@ def process_with_function_calling(
         full_prompt.append(f"\n[คำถามล่าสุดจากผู้ใช้]:\n{user_message}")
         final_prompt = "\n".join(full_prompt)
 
-        # เรียก Gemini ครั้งที่ 1
         response = gemini_model_with_tools.generate_content(final_prompt)
         response_part = response.parts[0]
 
-        # ถ้า Gemini ตอบมาเป็นข้อความปกติ
         if not hasattr(response_part, 'function_call'):
             return response.text.strip()
 
-        # ถ้า Gemini สั่งให้เรียกใช้ Tool
         func_call = response_part.function_call
-        func_name = func_call.name
-        func_args = {key: value for key, value in func_call.args.items()}
+        func_name, func_args = func_call.name, {key: value for key, value in func_call.args.items()}
 
-        # เรียกใช้ Tool ผ่าน Dispatcher
         tool_result = function_dispatch(user_info, func_name, func_args)
 
-        # เรียก Gemini ครั้งที่ 2 พร้อมผลลัพธ์จาก Tool
         response_after_tool = gemini_model_with_tools.generate_content(
             [final_prompt, response, {"tool_response": {"name": func_name, "response": tool_result}}]
         )
