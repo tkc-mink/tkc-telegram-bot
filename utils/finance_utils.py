@@ -1,62 +1,65 @@
 # utils/finance_utils.py
 # -*- coding: utf-8 -*-
 """
-Central utility for fetching all financial data (stocks, crypto, oil)
-using a reliable, internal Google Search tool. This is the master version. (Syntax Fixed)
+Central utility for fetching financial data using web scraping.
+This is Plan B to bypass the persistent SyntaxError.
 """
 from __future__ import annotations
-from typing import Dict, Optional
+from typing import Optional
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import quote
 
-# ✅ แก้ไขชื่อ "Google Search" เป็น "Google Search" ที่ถูกต้อง
-try:
-    from internal_tools import Google Search
-except ImportError:
-    print("WARNING: 'internal_tools.Google Search' not found. Using mock data for finance utils.")
-    class MockSearchResult:
-        def __init__(self, snippet="", title=""): self.snippet, self.title = snippet, title
-    class MockSearchResults:
-        def __init__(self, results): self.results = results
-    def search_mock(queries=None):
-        query = queries[0] if queries else ""
-        if "stock price" in query: return [MockSearchResults([MockSearchResult(snippet="Price: 34.50 THB, Change: +0.25 (0.73%)", title="PTT PCL (PTT.BK)")])]
-        if "crypto price" in query: return [MockSearchResults([MockSearchResult(snippet="Price: $65,123.45 USD, Change: -$1,234.56 (-1.86%)", title="Bitcoin (BTC)")])]
-        if "oil price" in query: return [MockSearchResults([MockSearchResult(snippet="WTI Crude: $80.50/bbl | Brent Crude: $85.00/bbl")])]
-        return [MockSearchResults([])]
-    Google Search = type("GoogleSearch", (), {"search": staticmethod(search_mock)})
-
+def _scrape_google_finance(query: str) -> Optional[str]:
+    """Helper function to scrape Google search results for financial data."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    # Encode the query to handle special characters
+    encoded_query = quote(query)
+    url = f"https://www.google.com/search?q={encoded_query}&hl=th"
+    
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        
+        # This is a common class used by Google for direct answers.
+        price_div = soup.find('div', class_='BNeawe iBp4i AP7Wnd')
+        
+        if price_div:
+            return price_div.text
+        # Fallback for different structures
+        price_span = soup.find('span', class_='IsqA6b')
+        if price_span:
+            return price_span.text
+            
+        return None
+    except Exception as e:
+        print(f"[Finance_Utils] Scraping error for query '{query}': {e}")
+        return None
 
 def get_stock_info_from_google(symbol: str) -> Optional[str]:
-    query = f"stock price {symbol} site:google.com/finance"
-    try:
-        results = Google Search(queries=[query])
-        if results and results[0].results:
-            res, name = results[0].results[0], res.title.split("(")[0].strip() if res.title else symbol
-            return (f"📈 **ข้อมูลหุ้น {name} ({symbol})**\n---------------------------------\n{res.snippet}\n---------------------------------\n*ข้อมูลล่าสุดจาก Google Finance*")
-        return None
-    except Exception as e:
-        print(f"[Finance_Utils] An error occurred while fetching stock info for {symbol}: {e}")
-        return None
+    """Fetches stock info using the scraping helper."""
+    print(f"[Finance_Utils] Scraping stock symbol: {symbol}")
+    result = _scrape_google_finance(f"stock price {symbol}")
+    if result:
+        return (f"📈 **ข้อมูลหุ้น {symbol.upper()}**\n---------------------------------\n{result}\n---------------------------------\n*ข้อมูลล่าสุดจาก Google*")
+    return f"ไม่พบข้อมูลหุ้น {symbol.upper()}"
 
 def get_crypto_price_from_google(symbol: str) -> Optional[str]:
+    """Fetches crypto info using the scraping helper."""
     if "-" not in symbol: symbol = f"{symbol}-USD"
-    query = f"crypto price {symbol} site:google.com/finance"
-    try:
-        results = Google Search(queries=[query])
-        if results and results[0].results:
-            res, name = results[0].results[0], res.title.split("(")[0].strip() if res.title else symbol.split("-")[0]
-            return (f"💸 **ข้อมูลเหรียญ {name} ({symbol.split('-')[0]})**\n---------------------------------\n{res.snippet}\n---------------------------------\n*ข้อมูลล่าสุดจาก Google Finance*")
-        return None
-    except Exception as e:
-        print(f"[Finance_Utils] Error fetching crypto info for {symbol}: {e}")
-        return None
+    print(f"[Finance_Utils] Scraping crypto symbol: {symbol}")
+    result = _scrape_google_finance(f"crypto price {symbol}")
+    if result:
+        return (f"💸 **ข้อมูลเหรียญ {symbol.split('-')[0].upper()}**\n---------------------------------\n{result}\n---------------------------------\n*ข้อมูลล่าสุดจาก Google*")
+    return f"ไม่พบข้อมูลเหรียญ {symbol.split('-')[0].upper()}"
 
 def get_oil_price_from_google() -> Optional[str]:
-    query = "oil price WTI brent site:google.com/finance"
-    try:
-        results = Google Search(queries=[query])
-        if results and results[0].results:
-            return (f"🛢️ **ราคาน้ำมันดิบ (ล่าสุด)**\n---------------------------------\n{results[0].results[0].snippet}\n---------------------------------\n*ข้อมูลล่าสุดจาก Google Finance*")
-        return None
-    except Exception as e:
-        print(f"[Finance_Utils] Error fetching oil prices: {e}")
-        return None
+    """Fetches oil price info using the scraping helper."""
+    print("[Finance_Utils] Scraping oil prices")
+    result = _scrape_google_finance("oil price wti brent")
+    if result:
+        return (f"🛢️ **ราคาน้ำมันดิบ (ล่าสุด)**\n---------------------------------\n{result}\n---------------------------------\n*ข้อมูลล่าสุดจาก Google*")
+    return "ไม่พบข้อมูลราคาน้ำมัน"
