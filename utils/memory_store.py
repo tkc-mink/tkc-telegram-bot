@@ -80,8 +80,18 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
+            # Table 5: FAQ
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS faq (
+                    faq_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    keyword TEXT NOT NULL UNIQUE,
+                    answer TEXT NOT NULL,
+                    added_by INTEGER NOT NULL,
+                    timestamp TEXT NOT NULL
+                )
+            """)
             conn.commit()
-            print("[Memory] Database initialized successfully (Master Version).")
+            print("[Memory] Database initialized successfully (Master Version with all features).")
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
@@ -180,17 +190,14 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
         with _get_db_connection() as conn:
             msg_count = conn.execute("SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,)).fetchone()[0]
             if msg_count <= MAX_HISTORY_ITEMS: return
-
             limit = msg_count - KEEP_TAIL_AFTER_SUM
             part_to_summarize = conn.execute("SELECT role, content, message_id FROM messages WHERE user_id = ? ORDER BY timestamp ASC LIMIT ?", (user_id, limit)).fetchall()
             if not part_to_summarize: return
-
             text_to_summarize = "\n".join(f"[{m['role']}] {m['content']}" for m in part_to_summarize)
             previous_summary = get_summary(user_id)
             prompt = f"{('[สรุปเดิม] ' + previous_summary) if previous_summary else ''}\n[เนื้อหาใหม่ที่จะสรุปต่อ] {text_to_summarize}"
             new_summary = summarize_func(prompt)
             set_summary(user_id, new_summary)
-            
             ids_to_delete = tuple(m['message_id'] for m in part_to_summarize)
             conn.execute(f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in ids_to_delete)})", ids_to_delete)
             conn.commit()
@@ -246,3 +253,35 @@ def remove_favorite_by_id(favorite_id: int, user_id: int) -> bool:
             return res.rowcount > 0
     except sqlite3.Error:
         return False
+
+# --- FAQ Functions ---
+def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
+    try:
+        with _get_db_connection() as conn:
+            now_iso = datetime.datetime.now().isoformat()
+            conn.execute(
+                "INSERT INTO faq (keyword, answer, added_by, timestamp) VALUES (?, ?, ?, ?) ON CONFLICT(keyword) DO UPDATE SET answer=excluded.answer, added_by=excluded.added_by, timestamp=excluded.timestamp",
+                (keyword.lower(), answer, user_id, now_iso)
+            )
+            conn.commit()
+            return True
+    except sqlite3.Error as e:
+        print(f"[Memory] DB error adding/updating FAQ: {e}")
+        return False
+
+def get_faq_answer(keyword: str) -> Optional[str]:
+    try:
+        with _get_db_connection() as conn:
+            res = conn.execute("SELECT answer FROM faq WHERE keyword = ?", (keyword.lower(),)).fetchone()
+            return res['answer'] if res else None
+    except sqlite3.Error as e:
+        print(f"[Memory] DB error getting FAQ answer: {e}")
+        return None
+
+def get_all_faqs() -> List[Dict]:
+    try:
+        with _get_db_connection() as conn:
+            return [dict(row) for row in conn.execute("SELECT keyword, answer FROM faq ORDER BY keyword ASC").fetchall()]
+    except sqlite3.Error as e:
+        print(f"[Memory] DB error getting all FAQs: {e}")
+        return []
