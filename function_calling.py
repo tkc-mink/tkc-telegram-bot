@@ -48,7 +48,7 @@ except Exception as e:
     print(f"[function_calling] ❌ ERROR: Could not initialize Gemini with tools: {e}")
     gemini_model_with_tools = None
 
-# --- Function Dispatcher (เหมือนเดิม) ---
+# --- Function Dispatcher (อัปเดตข้อความ Error) ---
 def function_dispatch(user_info: Dict[str, Any], fname: str, args: Dict[str, Any]) -> str:
     """Dispatches the function call to the correct utility."""
     try:
@@ -110,7 +110,7 @@ def process_with_function_calling(
         print(f"[process_with_function_calling] Error: {e}")
         return generate_text(user_message)
 
-# ===== Summarize Function =====
+# ===== Summarize Function (อัปเดต Prompt) =====
 def summarize_text_with_gpt(text: str) -> str:
     prompt = f"ในฐานะ 'ชิบะน้อย' ช่วยสรุปบทสนทนานี้ให้หน่อยครับ เอาแบบสั้นๆ กวนๆ แต่รู้เรื่องนะ: \n\n---\n{text}\n---"
     return generate_text(prompt)
