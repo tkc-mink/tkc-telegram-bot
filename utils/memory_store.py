@@ -1,7 +1,7 @@
 # utils/memory_store.py
 # -*- coding: utf-8 -*-
 """
-Persistent Memory Store using SQLite (Master Version)
+Persistent Memory Store using SQLite (Master Version - Final Fix)
 - Stores permanent profiles for users (including location, status, and role).
 - Stores conversation history, reviews, favorites, and FAQs.
 """
@@ -296,8 +296,10 @@ def remove_favorite_by_id(favorite_id: int, user_id: int) -> bool:
     except sqlite3.Error:
         return False
 
+# --- ✅ **ส่วนที่เพิ่มเข้ามา** ---
 # --- FAQ Functions ---
 def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
+    """Adds or updates an FAQ entry in the database."""
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
@@ -320,6 +322,7 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
         return False
 
 def get_faq_answer(keyword: str) -> Optional[str]:
+    """Retrieves an FAQ answer by its keyword."""
     try:
         with _get_db_connection() as conn:
             res = conn.execute("SELECT answer FROM faq WHERE keyword = ?", (keyword.lower(),)).fetchone()
@@ -329,6 +332,7 @@ def get_faq_answer(keyword: str) -> Optional[str]:
         return None
 
 def get_all_faqs() -> List[Dict]:
+    """Retrieves all FAQ entries from the database."""
     try:
         with _get_db_connection() as conn:
             return [dict(row) for row in conn.execute("SELECT keyword, answer FROM faq ORDER BY keyword ASC").fetchall()]
