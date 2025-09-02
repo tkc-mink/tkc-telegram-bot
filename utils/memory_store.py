@@ -198,6 +198,7 @@ def get_recent_context(user_id: int, max_items: int = CTX_MAX_ITEMS, max_chars: 
         return []
 
 def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict]:
+    """Retrieves the most recent chat history for a user from the database."""
     try:
         with _get_db_connection() as conn:
             history = []
@@ -206,7 +207,8 @@ def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict]:
                 row_dict['timestamp'] = datetime.datetime.fromtimestamp(row_dict['timestamp']).isoformat()
                 history.append(row_dict)
             return history
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        print(f"[Memory] DB error getting user chat history: {e}")
         return []
 
 # --- Summarization Functions ---
@@ -296,23 +298,13 @@ def remove_favorite_by_id(favorite_id: int, user_id: int) -> bool:
     except sqlite3.Error:
         return False
 
-# --- ✅ **ส่วนที่เพิ่มเข้ามา** ---
 # --- FAQ Functions ---
 def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
-    """Adds or updates an FAQ entry in the database."""
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            # Use INSERT ... ON CONFLICT to handle both add and update in one step
             conn.execute(
-                """
-                INSERT INTO faq (keyword, answer, added_by, timestamp)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(keyword) DO UPDATE SET
-                    answer = excluded.answer,
-                    added_by = excluded.added_by,
-                    timestamp = excluded.timestamp
-                """,
+                "INSERT INTO faq (keyword, answer, added_by, timestamp) VALUES (?, ?, ?, ?) ON CONFLICT(keyword) DO UPDATE SET answer=excluded.answer, added_by=excluded.added_by, timestamp=excluded.timestamp",
                 (keyword.lower(), answer, user_id, now_iso)
             )
             conn.commit()
@@ -322,7 +314,6 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
         return False
 
 def get_faq_answer(keyword: str) -> Optional[str]:
-    """Retrieves an FAQ answer by its keyword."""
     try:
         with _get_db_connection() as conn:
             res = conn.execute("SELECT answer FROM faq WHERE keyword = ?", (keyword.lower(),)).fetchone()
@@ -332,7 +323,6 @@ def get_faq_answer(keyword: str) -> Optional[str]:
         return None
 
 def get_all_faqs() -> List[Dict]:
-    """Retrieves all FAQ entries from the database."""
     try:
         with _get_db_connection() as conn:
             return [dict(row) for row in conn.execute("SELECT keyword, answer FROM faq ORDER BY keyword ASC").fetchall()]
