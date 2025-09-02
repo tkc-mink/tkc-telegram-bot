@@ -42,10 +42,11 @@ def get_weather_forecast(lat: float, lon: float) -> str:
         if resp.status_code == 401:
             return "❌ API Key ของ OpenWeatherMap ไม่ถูกต้องหรือหมดอายุครับ"
         
-        resp.raise_for_status()
+        resp.raise_for_status() # Raise an exception for other bad status codes (4xx or 5xx)
         
         data = resp.json()
         
+        # --- ดึงข้อมูลอย่างละเอียด ---
         weather = data.get("weather", [{}])[0]
         main_condition = weather.get("main", "ไม่ทราบ")
         description = weather.get("description", "-").capitalize()
@@ -57,10 +58,12 @@ def get_weather_forecast(lat: float, lon: float) -> str:
         humidity = main.get("humidity", "-")
         
         wind = data.get("wind", {})
+        # แปลง m/s เป็น km/h (x 3.6)
         wind_speed_kmh = round(wind.get("speed", 0) * 3.6, 1)
 
         city_name = data.get("name", "ไม่ระบุตำแหน่ง")
 
+        # --- จัดรูปแบบการแสดงผลให้สวยงามและครบถ้วน ---
         message = (
             f"{emoji} **พยากรณ์อากาศล่าสุด - {city_name}**\n"
             f"------------------------------------\n"
