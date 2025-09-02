@@ -57,7 +57,7 @@ def init_db():
             _add_column_if_not_exists(cursor, 'users', 'longitude', 'REAL')
             _add_column_if_not_exists(cursor, 'users', 'status', 'TEXT', "'pending'")
             _add_column_if_not_exists(cursor, 'users', 'role', 'TEXT', "'employee'")
-            
+
             # Table 2: Messages
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
@@ -67,7 +67,7 @@ def init_db():
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id_timestamp ON messages (user_id, timestamp);")
-            
+
             # Table 3: Reviews
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reviews (
@@ -76,7 +76,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            
+
             # Table 4: Favorites
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS favorites (
@@ -85,7 +85,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-            
+
             # Table 5: FAQ
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS faq (
@@ -111,7 +111,7 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         last_name = user_data.get('last_name', '')
         username = user_data.get('username', '')
         now_iso = datetime.datetime.now().isoformat()
-        
+
         with _get_db_connection() as conn:
             cursor = conn.cursor()
             user = cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -300,11 +300,20 @@ def remove_favorite_by_id(favorite_id: int, user_id: int) -> bool:
 
 # --- FAQ Functions ---
 def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
+    """Adds or updates an FAQ entry in the database."""
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
+            # Use INSERT ... ON CONFLICT to handle both add and update in one step
             conn.execute(
-                "INSERT INTO faq (keyword, answer, added_by, timestamp) VALUES (?, ?, ?, ?) ON CONFLICT(keyword) DO UPDATE SET answer=excluded.answer, added_by=excluded.added_by, timestamp=excluded.timestamp",
+                """
+                INSERT INTO faq (keyword, answer, added_by, timestamp)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(keyword) DO UPDATE SET
+                    answer = excluded.answer,
+                    added_by = excluded.added_by,
+                    timestamp = excluded.timestamp
+                """,
                 (keyword.lower(), answer, user_id, now_iso)
             )
             conn.commit()
@@ -314,6 +323,7 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
         return False
 
 def get_faq_answer(keyword: str) -> Optional[str]:
+    """Retrieves an FAQ answer by its keyword."""
     try:
         with _get_db_connection() as conn:
             res = conn.execute("SELECT answer FROM faq WHERE keyword = ?", (keyword.lower(),)).fetchone()
@@ -323,6 +333,7 @@ def get_faq_answer(keyword: str) -> Optional[str]:
         return None
 
 def get_all_faqs() -> List[Dict]:
+    """Retrieves all FAQ entries from the database."""
     try:
         with _get_db_connection() as conn:
             return [dict(row) for row in conn.execute("SELECT keyword, answer FROM faq ORDER BY keyword ASC").fetchall()]
