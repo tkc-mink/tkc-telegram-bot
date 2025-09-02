@@ -1,77 +1,84 @@
 # utils/admin_utils.py
 # -*- coding: utf-8 -*-
 """
-Admin utilities for managing user access and bot functions.
-This module now uses the updated memory_store functions.
+Contains the business logic for all admin commands, ensuring separation
+of concerns from the handlers. This is the final, correct version.
 """
+from __future__ import annotations
+from typing import Dict, Any
 import os
-from typing import Dict, Any, Optional
 
-# --- ✅ **ส่วนที่แก้ไข:** เปลี่ยนชื่อฟังก์ชันที่ Import ให้ถูกต้อง ---
+# --- ✅ ส่วนที่แก้ไข: import เครื่องมือที่ถูกต้องจาก memory_store ---
 from utils.memory_store import (
-    load_all_user_profiles, # ✅ เปลี่ยนจาก get_all_users
-    update_user_profile,    # ✅ เปลี่ยนจาก update_user_status
-    get_user_by_id
+    get_all_users,      # ใช้สำหรับดึงรายชื่อผู้ใช้ทั้งหมด
+    update_user_status, # ใช้สำหรับเปลี่ยนสถานะ (อนุมัติ/ลบ)
+    get_user_by_id      # ใช้สำหรับดึงข้อมูลผู้ใช้รายคน
 )
-from utils.telegram_api import send_message, reply_keyboard
+from utils.telegram_api import send_message
 
-SUPER_ADMIN_ID = os.getenv("SUPER_ADMIN_ID")
+# --- ดึง ID ของ Super Admin มาจาก Environment Variable ---
+# **สำคัญ:** คุณต้องไปตั้งค่า SUPER_ADMIN_ID ใน Environment Variables บน Render
+# โดยใส่ค่าเป็น Telegram User ID ของคุณ
+try:
+    SUPER_ADMIN_ID = int(os.getenv("SUPER_ADMIN_ID", "0"))
+except (ValueError, TypeError):
+    print("[Admin] ERROR: SUPER_ADMIN_ID is not a valid integer. Admin features will be disabled.")
+    SUPER_ADMIN_ID = 0
 
 def is_super_admin(user_id: int) -> bool:
-    """Checks if the given user ID is the SUPER_ADMIN_ID."""
-    return str(user_id) == str(SUPER_ADMIN_ID)
+    """ตรวจสอบว่า user ID นี้เป็น Super Admin หรือไม่"""
+    if not SUPER_ADMIN_ID:
+        return False
+    return user_id == SUPER_ADMIN_ID
 
-def approve_user(admin_chat_id: int, target_user_id: int) -> str:
-    """Approves a user to use the bot."""
-    user_profile = get_user_by_id(target_user_id)
-    if not user_profile:
-        return f"ชิบะน้อยหาผู้ใช้ ID {target_user_id} ไม่เจอครับ"
+def notify_super_admin_for_approval(new_user_data: Dict[str, Any]):
+    """ส่งข้อความแจ้งเตือน Super Admin เมื่อมีผู้ใช้ใหม่รออนุมัติ"""
+    if not SUPER_ADMIN_ID:
+        print("[Admin] SUPER_ADMIN_ID is not set. Cannot send new user notification.")
+        return
+        
+    user_id = new_user_data.get('id')
+    first_name = new_user_data.get('first_name', '')
+    username = new_user_data.get('username', 'N/A')
     
-    if user_profile.get("is_approved", False):
-        return f"ผู้ใช้ {user_profile.get('first_name', '')} (ID: {target_user_id}) ได้รับอนุมัติอยู่แล้วครับ"
+    message = (
+        f"🔔 **มีผู้ใช้ใหม่รอการอนุมัติครับ** 🔔\n\n"
+        f"**ชื่อ:** {first_name}\n"
+        f"**Username:** @{username}\n"
+        f"**User ID:** `{user_id}`\n\n"
+        f"ใช้คำสั่ง `/admin_approve {user_id}` เพื่ออนุมัติ หรือ `/admin_remove {user_id}` เพื่อปฏิเสธครับ"
+    )
+    send_message(SUPER_ADMIN_ID, message, parse_mode="Markdown")
 
-    user_profile['is_approved'] = True
-    # ✅ ใช้ update_user_profile เพื่ออัปเดตข้อมูลผู้ใช้
-    update_user_profile(user_profile)
-    
-    send_message(target_user_id, "🎉 เย้! คุณได้รับอนุญาตให้ใช้บอทของชิบะน้อยแล้วครับ")
-    return f"✅ อนุมัติผู้ใช้ {user_profile.get('first_name', '')} (ID: {target_user_id}) เรียบร้อยครับ"
+def approve_user(target_user_id: int) -> str:
+    """ตรรกะสำหรับการอนุมัติผู้ใช้"""
+    if update_user_status(target_user_id, "approved"):
+        target_user = get_user_by_id(target_user_id)
+        if target_user:
+            send_message(target_user_id, "🎉 ยินดีด้วยครับ! บัญชีของคุณได้รับการอนุมัติให้เข้าใช้งาน 'ชิบะน้อย' เรียบร้อยแล้ว\n\nพิมพ์ /help เพื่อดูคำสั่งทั้งหมดได้เลยครับ")
+        return f"✅ อนุมัติผู้ใช้ ID: {target_user_id} เรียบร้อยแล้วครับ"
+    else:
+        return f"❓ ไม่พบผู้ใช้ ID: {target_user_id} หรือเกิดข้อผิดพลาดในการอัปเดตสถานะครับ"
+
+def remove_user(target_user_id: int) -> str:
+    """ตรรกะสำหรับการลบ/ระงับผู้ใช้"""
+    if update_user_status(target_user_id, "removed"):
+        target_user = get_user_by_id(target_user_id)
+        name = target_user.get('first_name', '') if target_user else ''
+        send_message(target_user_id, "บัญชีของคุณถูกระงับการใช้งานแล้วครับ")
+        return f"🚫 ระงับการใช้งานผู้ใช้ ID: {target_user_id} ({name}) เรียบร้อยแล้วครับ"
+    else:
+        return f"❓ ไม่พบผู้ใช้ ID: {target_user_id} หรือเกิดข้อผิดพลาดครับ"
 
 def list_all_users() -> str:
-    """Lists all registered users with their status."""
-    # ✅ ใช้ load_all_user_profiles เพื่อดึงข้อมูลผู้ใช้ทั้งหมด
-    all_users = load_all_user_profiles()
-    if not all_users:
-        return "ตอนนี้ยังไม่มีใครคุยกับชิบะน้อยเลยครับ"
-
-    messages = ["👤 รายชื่อผู้ใช้ทั้งหมด:"]
-    for user_id_str, profile in all_users.items():
-        user_id = int(user_id_str)
-        status = "✅ อนุมัติแล้ว" if profile.get("is_approved") else "⏳ รออนุมัติ"
-        name = profile.get("first_name", f"ไม่ระบุ ({user_id})")
-        messages.append(f"- {name} (ID: {user_id}) : {status}")
-    return "\n".join(messages)
-
-def remove_user(admin_chat_id: int, target_user_id: int) -> str:
-    """Removes a user's approval to use the bot."""
-    user_profile = get_user_by_id(target_user_id)
-    if not user_profile:
-        return f"ชิบะน้อยหาผู้ใช้ ID {target_user_id} ไม่เจอครับ"
+    """สร้างข้อความสรุปรายชื่อผู้ใช้ทั้งหมดในระบบ"""
+    users = get_all_users()
+    if not users:
+        return "ยังไม่มีผู้ใช้ในระบบเลยครับ"
     
-    if not user_profile.get("is_approved", False):
-        return f"ผู้ใช้ {user_profile.get('first_name', '')} (ID: {target_user_id}) ไม่ได้รับอนุมัติอยู่แล้วครับ"
-
-    user_profile['is_approved'] = False
-    # ✅ ใช้ update_user_profile เพื่ออัปเดตข้อมูลผู้ใช้
-    update_user_profile(user_profile)
-
-    send_message(target_user_id, "😢 คุณไม่ได้รับอนุญาตให้ใช้บอทของชิบะน้อยแล้วครับ")
-    return f"🚫 ถอนการอนุมัติผู้ใช้ {user_profile.get('first_name', '')} (ID: {target_user_id}) เรียบร้อยครับ"
-
-def get_admin_commands_keyboard():
-    """Returns an inline keyboard for admin commands."""
-    return reply_keyboard([
-        ["อนุมัติผู้ใช้"],
-        ["ลบผู้ใช้"],
-        ["ดูผู้ใช้ทั้งหมด"]
-    ], one_time=False, resize=True)
+    lines = ["**รายชื่อผู้ใช้ทั้งหมดในระบบ:**"]
+    for user in users:
+        status_icon = {"approved": "✅", "pending": "⏳", "removed": "❌"}.get(user['status'], "❓")
+        lines.append(f"{status_icon} `{user['user_id']}` - {user['first_name']} (@{user['username']}) [{user['role']}]")
+    
+    return "\n".join(lines)
