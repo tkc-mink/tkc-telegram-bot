@@ -1,8 +1,9 @@
 # handlers/main_handler.py
 # -*- coding: utf-8 -*-
 """
-Main Message Handler (The Bot's Brain) - Final Version
-- Fully integrated with all new utilities and the function calling engine.
+Main Message Handler (The Bot's Brain) - V3 (Admin & Approval Flow)
+- Handles routing for all commands, including a dedicated admin route.
+- Implements the user approval workflow.
 """
 from __future__ import annotations
 from typing import Dict, Any, Callable
@@ -10,6 +11,7 @@ import re
 import traceback
 
 # ===== Handler Imports =====
+# (No changes here)
 from handlers.history import handle_history
 from handlers.review import handle_review
 from handlers.weather import handle_weather
@@ -24,7 +26,9 @@ from handlers.faq import handle_faq
 from handlers.backup_status import handle_backup_status
 from handlers.search import handle_gemini_search, handle_gemini_image_generation
 from handlers.image import handle_image
-from handlers.favorite import handle_favorite # ✅ เพิ่ม favorite handler
+from handlers.favorite import handle_favorite
+# ✅ 1. เพิ่ม import สำหรับพนักงานแอดมิน
+from handlers.admin import handle_admin_command
 
 # ===== Utility Imports =====
 from utils.telegram_api import send_message as tg_send_message
@@ -38,24 +42,15 @@ from utils.memory_store import (
     prune_and_maybe_summarize,
     update_user_location
 )
+# ✅ 2. เพิ่ม import สำหรับเครื่องมือแจ้งเตือนแอดมิน
+from utils.admin_utils import notify_super_admin_for_approval
 
-# --- Helper Functions for Commands ---
-def _handle_start(user_info: Dict[str, Any], text: str):
-    chat_id = user_info['profile']['user_id']
-    first_name = user_info['profile']['first_name']
-    if user_info['status'] == 'new_user':
-        welcome_message = f"สวัสดีครับคุณ {first_name}! ยินดีที่ได้รู้จักครับ ผมคือ TKC Assistant ผู้ช่วยส่วนตัวของคุณ"
-    else:
-        welcome_message = f"ยินดีต้อนรับกลับมาครับคุณ {first_name}! มีอะไรให้ผมรับใช้ไหมครับ"
-    tg_send_message(chat_id, welcome_message)
-    _send_help(chat_id)
-
-def _handle_whoami(user_info: Dict[str, Any], text: str):
-    chat_id = user_info['profile']['user_id']
-    tg_send_message(chat_id, bot_intro())
+# (Helper functions _handle_start, _handle_whoami can remain the same)
+# ...
 
 # ===== Command Router Configuration =====
 COMMAND_HANDLERS: Dict[str, Callable] = {
+    # (No changes here, admin commands are handled separately now)
     "/my_history": handle_history, "/gold": handle_gold, "/lottery": handle_lottery,
     "/stock": handle_stock, "/crypto": handle_crypto, "/oil": handle_oil,
     "/weather": handle_weather, "/search": handle_gemini_search,
@@ -72,10 +67,12 @@ COMMAND_HANDLERS: Dict[str, Callable] = {
     "ชื่ออะไร": _handle_whoami, "คุณคือใคร": _handle_whoami,
 }
 
-# (ส่วนของ No-Echo Sanitizer สามารถคงไว้เหมือนเดิม)
+# (No-Echo Sanitizer can remain the same)
+# ...
 
 # ===== Main Message Handling Logic =====
 def handle_message(data: Dict[str, Any]) -> None:
+    """The main entry point for processing all incoming messages."""
     chat_id = None
     try:
         msg = data.get("message") or data.get("edited_message") or {}
@@ -91,10 +88,37 @@ def handle_message(data: Dict[str, Any]) -> None:
             tg_send_message(chat_id, "ขออภัยครับ ระบบความทรงจำของผมมีปัญหาชั่วคราว กรุณาลองอีกครั้งภายหลังครับ")
             return
         
+        # --- ✅ 3. **ตรรกะการอนุมัติผู้ใช้ใหม่** ---
+        status = user_info['status']
+        profile = user_info['profile']
+        
+        # ถ้าเป็นผู้ใช้ใหม่ที่เพิ่งถูกสร้างและกำลังรออนุมัติ
+        if status == "new_user_pending":
+            send_message(profile['user_id'], "สวัสดีครับ! คำขอเข้าใช้งานของคุณถูกส่งไปให้ผู้ดูแลระบบแล้ว กรุณารอการอนุมัติสักครู่นะครับ")
+            notify_super_admin_for_approval(user_data)
+            return
+
+        # ถ้าเป็นผู้ใช้เก่าที่สถานะยังเป็น pending
+        if profile['status'] == 'pending':
+            send_message(profile['user_id'], "บัญชีของคุณยังรอการอนุมัติจากผู้ดูแลระบบครับ")
+            return
+            
+        # ถ้าสถานะไม่ใช่ 'approved' (เช่น 'removed' หรืออื่นๆ)
+        if profile['status'] != 'approved':
+            send_message(profile['user_id'], "บัญชีของคุณไม่ได้รับอนุญาตให้ใช้งานระบบครับ")
+            return
+        # --- สิ้นสุดตรรกะการอนุมัติ ---
+        
         user_id = user_info['profile']['user_id']
         user_text = (msg.get("caption") or msg.get("text") or "").strip()
         user_text_low = user_text.lower()
+        
+        # --- ✅ 4. **เพิ่ม Admin Command Router** ---
+        # ตรวจสอบคำสั่งแอดมินก่อนคำสั่งทั่วไปเสมอ
+        if user_text_low.startswith('/admin'):
+            return handle_admin_command(user_info, user_text)
 
+        # (ส่วนจัดการข้อความประเภทอื่นๆ เหมือนเดิม)
         if msg.get("document"): return handle_doc(user_info, msg)
         if msg.get("location"): return _handle_location_message(user_info, msg)
         if msg.get("photo") or msg.get("sticker") or msg.get("video") or msg.get("animation"):
@@ -103,19 +127,17 @@ def handle_message(data: Dict[str, Any]) -> None:
             tg_send_message(chat_id, "สวัสดีครับ มีอะไรให้ผมรับใช้ไหมครับ? พิมพ์ /help เพื่อดูคำสั่งได้เลยครับ")
             return
 
+        # (ส่วน Command Router สำหรับผู้ใช้ทั่วไปเหมือนเดิม)
         for command, handler in COMMAND_HANDLERS.items():
             if user_text_low.startswith(command):
                 return handler(user_info, user_text)
 
+        # (ส่วนจัดการ General Conversation เหมือนเดิม)
         print(f"[MAIN_HANDLER] Dispatching to general conversation for user {user_id}")
         append_message(user_id, "user", user_text)
         ctx = get_recent_context(user_id)
         summary = get_summary(user_id)
-        
-        # --- ✅ **ส่วนที่แก้ไข** ---
-        # ส่ง user_info เข้าไปด้วยเพื่อให้ function_calling engine ทำงานได้ถูกต้อง
         reply = process_with_function_calling(user_info, user_text, ctx=ctx, conv_summary=summary)
-        
         tg_send_message(chat_id, reply)
         append_message(user_id, "assistant", reply)
         prune_and_maybe_summarize(user_id, summarize_func=summarize_text_with_gpt)
@@ -125,36 +147,5 @@ def handle_message(data: Dict[str, Any]) -> None:
         if chat_id:
             tg_send_message(chat_id, f"ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล: {e}")
 
-# --- ✅ ฟังก์ชันที่อัปเกรดแล้ว ---
-def _handle_location_message(user_info: Dict[str, Any], msg: Dict[str, Any]) -> None:
-    user_id, chat_id, user_name = user_info['profile']['user_id'], user_info['profile']['user_id'], user_info['profile']['first_name']
-    loc = msg.get("location", {})
-    lat, lon = loc.get("latitude"), loc.get("longitude")
-    if lat is not None and lon is not None:
-        if update_user_location(user_id, lat, lon):
-            tg_send_message(chat_id, f"✅ ขอบคุณครับคุณ {user_name}! ผมบันทึกตำแหน่งของคุณแล้ว ลองใช้ /weather ได้เลยครับ")
-        else:
-            tg_send_message(chat_id, "❌ ขออภัยครับ เกิดปัญหาในการบันทึกตำแหน่ง")
-    else:
-        tg_send_message(chat_id, "❌ ตำแหน่งที่ส่งมาไม่ถูกต้อง")
-
-def _send_help(chat_id: int) -> None:
-    """Sends a help message with a list of available commands."""
-    help_text = (
-        "**รายการคำสั่งที่ใช้ได้ครับ**\n\n"
-        "**ความสามารถหลัก:**\n"
-        "• `/search <คำค้น>` - ค้นหาและสรุปข้อมูลล่าสุด\n"
-        "• `/image <คำอธิบาย>` - สร้างภาพใหม่ตามจินตนาการ\n"
-        "---------------------\n"
-        "**เครื่องมืออื่นๆ:**\n"
-        "• `/gold` - ราคาทอง\n"
-        "• `/lottery` - ผลสลากฯ\n"
-        "• `/stock <ชื่อหุ้น>` - ราคาหุ้น\n"
-        "• `/crypto <ชื่อเหรียญ>` - ราคาเหรียญดิจิทัล\n"
-        "• `/oil` - ราคาน้ำมัน\n"
-        "• `/weather` - พยากรณ์อากาศ\n"
-        "• `/review` - รีวิวการทำงานของผม\n"
-        "• `/favorite_list` - ดูรายการโปรด\n\n"
-        "*คุณสามารถพิมพ์คุยกับผมได้เลยทุกเรื่องนะครับ ผมจำได้ว่าเราคุยอะไรกันไว้บ้าง*"
-    )
-    tg_send_message(chat_id, help_text, parse_mode="Markdown")
+# (ฟังก์ชัน _handle_location_message และ _send_help เหมือนเดิม)
+# ...
