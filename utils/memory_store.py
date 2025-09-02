@@ -1,7 +1,7 @@
 # utils/memory_store.py
 # -*- coding: utf-8 -*-
 """
-Persistent Memory Store using SQLite (Master Version - Final Fix)
+Persistent Memory Store using SQLite (Master Version)
 - Stores permanent profiles for users (including location).
 - Stores conversation history, reviews, and favorites.
 """
@@ -98,16 +98,12 @@ def init_db():
 # --- User Profile & Location Functions ---
 
 def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Gets a user profile from the DB or creates one if it doesn't exist."""
+    user_id = user_data['id']
+    first_name = user_data.get('first_name', '')
+    last_name = user_data.get('last_name', '')
+    username = user_data.get('username', '')
+    now_iso = datetime.datetime.now().isoformat()
     try:
-        # ✅ **ส่วนที่แก้ไข:** เปลี่ยนจากการใช้ .id, .first_name มาเป็นการใช้ ['key']
-        user_id = user_data['id']
-        first_name = user_data.get('first_name', '')
-        last_name = user_data.get('last_name', '')
-        username = user_data.get('username', '')
-        
-        now_iso = datetime.datetime.now().isoformat()
-        
         with _get_db_connection() as conn:
             cursor = conn.cursor()
             user = cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -122,9 +118,6 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             conn.commit()
             updated_user_profile = dict(cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone())
             return {"status": status, "profile": updated_user_profile}
-    except KeyError as e:
-        print(f"[Memory] Key error processing user_data: {e}. Data received: {user_data}")
-        return None
     except sqlite3.Error as e:
         print(f"[Memory] DB error in get_or_create_user: {e}")
         return None
@@ -169,7 +162,7 @@ def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict]:
     try:
         with _get_db_connection() as conn:
             history = []
-            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall():
+            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall() :
                 row_dict = dict(row)
                 row_dict['timestamp'] = datetime.datetime.fromtimestamp(row_dict['timestamp']).isoformat()
                 history.append(row_dict)
