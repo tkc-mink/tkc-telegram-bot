@@ -162,7 +162,7 @@ def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict]:
     try:
         with _get_db_connection() as conn:
             history = []
-            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall():
+            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall() :
                 row_dict = dict(row)
                 row_dict['timestamp'] = datetime.datetime.fromtimestamp(row_dict['timestamp']).isoformat()
                 history.append(row_dict)
