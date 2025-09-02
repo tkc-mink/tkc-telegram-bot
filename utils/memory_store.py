@@ -1,9 +1,9 @@
 # utils/memory_store.py
 # -*- coding: utf-8 -*-
 """
-Persistent Memory Store using SQLite (Master Version - Final Fix)
+Persistent Memory Store using SQLite (Master Version)
 - Stores permanent profiles for users (including location, status, and role).
-- Stores conversation history, reviews, favorites, and FAQs.
+- Stores conversation history, reviews, favorites, FAQs, and leave requests.
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Callable
@@ -57,7 +57,7 @@ def init_db():
             _add_column_if_not_exists(cursor, 'users', 'longitude', 'REAL')
             _add_column_if_not_exists(cursor, 'users', 'status', 'TEXT', "'pending'")
             _add_column_if_not_exists(cursor, 'users', 'role', 'TEXT', "'employee'")
-
+            
             # Table 2: Messages
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
@@ -67,7 +67,7 @@ def init_db():
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id_timestamp ON messages (user_id, timestamp);")
-
+            
             # Table 3: Reviews
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reviews (
@@ -76,7 +76,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-
+            
             # Table 4: Favorites
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS favorites (
@@ -85,7 +85,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
-
+            
             # Table 5: FAQ
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS faq (
@@ -96,6 +96,22 @@ def init_db():
                     timestamp TEXT NOT NULL
                 )
             """)
+            
+            # Table 6: Leave Requests
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS leave_requests (
+                    request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    leave_type TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    reason TEXT,
+                    status TEXT DEFAULT 'pending',
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                )
+            """)
+            
             conn.commit()
             print("[Memory] Database initialized successfully (Master Version with all features).")
     except sqlite3.Error as e:
@@ -111,7 +127,7 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         last_name = user_data.get('last_name', '')
         username = user_data.get('username', '')
         now_iso = datetime.datetime.now().isoformat()
-
+        
         with _get_db_connection() as conn:
             cursor = conn.cursor()
             user = cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -304,7 +320,6 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            # Use INSERT ... ON CONFLICT to handle both add and update in one step
             conn.execute(
                 """
                 INSERT INTO faq (keyword, answer, added_by, timestamp)
@@ -340,3 +355,19 @@ def get_all_faqs() -> List[Dict]:
     except sqlite3.Error as e:
         print(f"[Memory] DB error getting all FAQs: {e}")
         return []
+
+# --- Leave Request Functions ---
+def add_leave_request(user_id: int, leave_type: str, start_date: str, end_date: str, reason: str) -> bool:
+    """Adds a new leave request to the database."""
+    try:
+        with _get_db_connection() as conn:
+            now_iso = datetime.datetime.now().isoformat()
+            conn.execute(
+                "INSERT INTO leave_requests (user_id, leave_type, start_date, end_date, reason, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, leave_type, start_date, end_date, reason, now_iso)
+            )
+            conn.commit()
+            return True
+    except sqlite3.Error as e:
+        print(f"[Memory] Failed to add leave request for user {user_id}: {e}")
+        return False
