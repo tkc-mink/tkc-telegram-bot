@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Persistent Memory Store using SQLite (Master Version)
-- Stores permanent profiles for users (including location).
-- Stores conversation history, reviews, and favorites.
+- Stores permanent profiles for users (including location, status, and role).
+- Stores conversation history, reviews, favorites, and FAQs.
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Callable
@@ -30,13 +30,13 @@ def _get_db_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
-def _add_column_if_not_exists(cursor: sqlite3.Cursor, table: str, column: str, col_type: str):
+def _add_column_if_not_exists(cursor: sqlite3.Cursor, table: str, column: str, col_type: str, default_val: str = "NULL"):
     """Helper function to add a column to a table if it doesn't already exist."""
     cursor.execute(f"PRAGMA table_info({table})")
     columns = [row['name'] for row in cursor.fetchall()]
     if column not in columns:
         print(f"[Memory] Upgrading table '{table}', adding column '{column}'...")
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type} DEFAULT {default_val}")
 
 # --- Initialization ---
 
@@ -55,6 +55,9 @@ def init_db():
             """)
             _add_column_if_not_exists(cursor, 'users', 'latitude', 'REAL')
             _add_column_if_not_exists(cursor, 'users', 'longitude', 'REAL')
+            _add_column_if_not_exists(cursor, 'users', 'status', 'TEXT', "'pending'")
+            _add_column_if_not_exists(cursor, 'users', 'role', 'TEXT', "'employee'")
+            
             # Table 2: Messages
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
@@ -64,6 +67,7 @@ def init_db():
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id_timestamp ON messages (user_id, timestamp);")
+            
             # Table 3: Reviews
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reviews (
@@ -72,6 +76,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
+            
             # Table 4: Favorites
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS favorites (
@@ -80,6 +85,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             """)
+            
             # Table 5: FAQ
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS faq (
@@ -95,22 +101,26 @@ def init_db():
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
-# --- User Profile & Location Functions ---
+# --- User Profile, Status & Location Functions ---
 
 def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    user_id = user_data['id']
-    first_name = user_data.get('first_name', '')
-    last_name = user_data.get('last_name', '')
-    username = user_data.get('username', '')
-    now_iso = datetime.datetime.now().isoformat()
+    """Gets a user profile from the DB or creates one with 'pending' status."""
     try:
+        user_id = user_data['id']
+        first_name = user_data.get('first_name', '')
+        last_name = user_data.get('last_name', '')
+        username = user_data.get('username', '')
+        now_iso = datetime.datetime.now().isoformat()
+        
         with _get_db_connection() as conn:
             cursor = conn.cursor()
             user = cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if user is None:
-                cursor.execute("INSERT INTO users (user_id, first_name, last_name, username, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
-                               (user_id, first_name, last_name, username, now_iso, now_iso))
-                status = "new_user"
+                cursor.execute(
+                    "INSERT INTO users (user_id, first_name, last_name, username, first_seen, last_seen, status, role) VALUES (?, ?, ?, ?, ?, ?, 'pending', 'employee')",
+                    (user_id, first_name, last_name, username, now_iso, now_iso)
+                )
+                status = "new_user_pending"
             else:
                 cursor.execute("UPDATE users SET last_seen = ?, first_name = ?, last_name = ?, username = ? WHERE user_id = ?",
                                (now_iso, first_name, last_name, username, user_id))
@@ -118,9 +128,39 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             conn.commit()
             updated_user_profile = dict(cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone())
             return {"status": status, "profile": updated_user_profile}
+    except KeyError as e:
+        print(f"[Memory] Key error processing user_data: {e}. Data received: {user_data}")
+        return None
     except sqlite3.Error as e:
         print(f"[Memory] DB error in get_or_create_user: {e}")
         return None
+
+def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
+    """Fetches a user's full profile by their ID."""
+    try:
+        with _get_db_connection() as conn:
+            user = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            return dict(user) if user else None
+    except sqlite3.Error:
+        return None
+
+def get_all_users() -> List[Dict]:
+    """Retrieves a list of all users with key information."""
+    try:
+        with _get_db_connection() as conn:
+            return [dict(row) for row in conn.execute("SELECT user_id, first_name, username, status, role FROM users ORDER BY first_seen DESC").fetchall()]
+    except sqlite3.Error:
+        return []
+
+def update_user_status(user_id: int, status: str) -> bool:
+    """Updates a user's status (e.g., 'approved', 'removed')."""
+    try:
+        with _get_db_connection() as conn:
+            res = conn.execute("UPDATE users SET status = ? WHERE user_id = ?", (status, user_id))
+            conn.commit()
+            return res.rowcount > 0
+    except sqlite3.Error:
+        return False
 
 def update_user_location(user_id: int, lat: float, lon: float) -> bool:
     try:
@@ -128,8 +168,7 @@ def update_user_location(user_id: int, lat: float, lon: float) -> bool:
             conn.execute("UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id))
             conn.commit()
             return True
-    except sqlite3.Error as e:
-        print(f"[Memory] DB error updating location: {e}")
+    except sqlite3.Error:
         return False
 
 # --- Chat History & Context Functions ---
@@ -162,7 +201,7 @@ def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict]:
     try:
         with _get_db_connection() as conn:
             history = []
-            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall() :
+            for row in conn.execute("SELECT role, content, timestamp FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?", (user_id, limit)).fetchall():
                 row_dict = dict(row)
                 row_dict['timestamp'] = datetime.datetime.fromtimestamp(row_dict['timestamp']).isoformat()
                 history.append(row_dict)
@@ -262,8 +301,16 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
+            # Use INSERT ... ON CONFLICT to handle both add and update in one step
             conn.execute(
-                "INSERT INTO faq (keyword, answer, added_by, timestamp) VALUES (?, ?, ?, ?) ON CONFLICT(keyword) DO UPDATE SET answer=excluded.answer, added_by=excluded.added_by, timestamp=excluded.timestamp",
+                """
+                INSERT INTO faq (keyword, answer, added_by, timestamp)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(keyword) DO UPDATE SET
+                    answer = excluded.answer,
+                    added_by = excluded.added_by,
+                    timestamp = excluded.timestamp
+                """,
                 (keyword.lower(), answer, user_id, now_iso)
             )
             conn.commit()
