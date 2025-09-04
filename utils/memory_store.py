@@ -1,12 +1,12 @@
 # utils/memory_store.py
 # -*- coding: utf-8 -*-
 """
-Persistent Memory Store using SQLite (Master Version, hardened)
+Persistent Memory Store using SQLite (Master Version, hardened+)
 - โปรไฟล์ผู้ใช้ (สถานะ, role, location) + ประวัติสนทนา/สรุป
 - รีวิว รายการโปรด FAQ ใบลา
-- ปรับปรุงความเสถียร: WAL, foreign_keys, index, กันพังกรณี field ขาด
-- รองรับ Super Admin อนุมัติอัตโนมัติผ่าน ENV: SUPER_ADMIN_IDS="604990227,123456789"
-- เพิ่ม alias set_user_status() ให้เข้ากับโค้ดเดิม
+- เสถียรขึ้น: WAL, foreign_keys, busy_timeout, backfill ค่า, validate status/role
+- Super Admin: รองรับทั้ง SUPER_ADMIN_IDS และ fallback ไป SUPER_ADMIN_ID
+- ลบข้อความแบบ chunk ในการสรุป กันชนลิมิต 999 placeholders
 """
 
 from __future__ import annotations
@@ -18,30 +18,44 @@ import datetime
 # --------------------- Config ---------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
-DB_PATH = os.path.join(DATA_DIR, "bot_memory.db")
+DB_PATH = os.path.join(DATA_DIR, os.getenv("BOT_MEMORY_DB_FILE", "bot_memory.db"))
 
 MAX_HISTORY_ITEMS = int(os.getenv("MEMORY_MAX_HISTORY_ITEMS", "40"))
 KEEP_TAIL_AFTER_SUM = int(os.getenv("MEMORY_KEEP_TAIL_AFTER_SUM", "8"))
 CTX_MAX_ITEMS = int(os.getenv("MEMORY_CTX_MAX_ITEMS", "12"))
 CTX_MAX_CHARS = int(os.getenv("MEMORY_CTX_MAX_CHARS", "6000"))
 
+# allowed values
+_ALLOWED_STATUS = {"pending", "approved", "removed"}
+_ALLOWED_ROLES = {"employee", "admin", "super_admin"}
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def _parse_super_admin_ids() -> set[int]:
+    """
+    รองรับได้ทั้ง:
+      SUPER_ADMIN_IDS="604990227,123456789" (หรือคั่นด้วย ; ก็ได้)
+      SUPER_ADMIN_ID="604990227" (legacy)
+    """
+    ids: set[int] = set()
     env = (os.getenv("SUPER_ADMIN_IDS") or "").strip()
-    out: set[int] = set()
-    if not env:
-        return out
-    for tok in env.split(","):
-        tok = tok.strip()
-        if not tok:
-            continue
+    if env:
+        for tok in env.replace(";", ",").split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            try:
+                ids.add(int(tok))
+            except ValueError:
+                pass
+    legacy = os.getenv("SUPER_ADMIN_ID")
+    if legacy:
         try:
-            out.add(int(tok))
-        except ValueError:
+            ids.add(int(legacy.strip()))
+        except Exception:
             pass
-    return out
+    return ids
 
 
 SUPER_ADMIN_IDS: set[int] = _parse_super_admin_ids()
@@ -57,6 +71,7 @@ def _get_db_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA busy_timeout=5000;")  # milliseconds
     return conn
 
 
@@ -99,6 +114,20 @@ def init_db() -> None:
             _add_column_if_not_exists(c, "users", "role", "TEXT", "'employee'")
             c.execute("CREATE INDEX IF NOT EXISTS idx_users_status ON users (status)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users (last_seen)")
+
+            # Backfill ค่าที่ว่าง/ผิดรูปแบบให้เป็นดีฟอลต์ (กันของเก่าพัง)
+            # Status
+            placeholders = ",".join("?" for _ in _ALLOWED_STATUS)
+            c.execute(
+                f"UPDATE users SET status='pending' WHERE status IS NULL OR status NOT IN ({placeholders})",
+                tuple(_ALLOWED_STATUS),
+            )
+            # Role
+            placeholders_role = ",".join("?" for _ in _ALLOWED_ROLES)
+            c.execute(
+                f"UPDATE users SET role='employee' WHERE role IS NULL OR role NOT IN ({placeholders_role})",
+                tuple(_ALLOWED_ROLES),
+            )
 
             # Table: messages
             c.execute(
@@ -175,7 +204,7 @@ def init_db() -> None:
             )
 
             conn.commit()
-            print("[Memory] Database initialized (WAL mode, indices ready).")
+            print("[Memory] Database initialized (WAL mode, indices, backfill ok).")
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
@@ -209,7 +238,6 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             row = c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
 
             if row is None:
-                # สถานะตั้งต้น
                 if is_super_admin(user_id):
                     default_status = "approved"
                     default_role = "super_admin"
@@ -272,6 +300,11 @@ def get_all_users() -> List[Dict[str, Any]]:
 
 
 def update_user_status(user_id: int, status: str) -> bool:
+    """อัปเดตสถานะโดยตรวจสอบค่าที่อนุญาตก่อน"""
+    status = (status or "").strip().lower()
+    if status not in _ALLOWED_STATUS:
+        print(f"[Memory] Reject invalid status '{status}' for user {user_id}")
+        return False
     try:
         with _get_db_connection() as conn:
             res = conn.execute("UPDATE users SET status = ? WHERE user_id = ?", (status, user_id))
@@ -287,6 +320,11 @@ def set_user_status(user_id: int, status: str) -> bool:
 
 
 def update_user_role(user_id: int, role: str) -> bool:
+    """อัปเดตบทบาทโดยตรวจสอบค่าที่อนุญาตก่อน"""
+    role = (role or "").strip().lower()
+    if role not in _ALLOWED_ROLES:
+        print(f"[Memory] Reject invalid role '{role}' for user {user_id}")
+        return False
     try:
         with _get_db_connection() as conn:
             res = conn.execute("UPDATE users SET role = ? WHERE user_id = ?", (role, user_id))
@@ -405,8 +443,12 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
             new_sum = summarize_func(prompt)
             set_summary(user_id, new_sum)
 
-            ids = tuple(m["message_id"] for m in part)
-            conn.execute(f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in ids)})", ids)
+            # ลบแบบ chunk กันชน 999 placeholders
+            ids = [m["message_id"] for m in part]
+            CHUNK = 500
+            for i in range(0, len(ids), CHUNK):
+                sub = ids[i : i + CHUNK]
+                conn.execute(f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in sub)})", sub)
             conn.commit()
     except sqlite3.Error:
         pass
