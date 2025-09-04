@@ -1,62 +1,127 @@
 # handlers/admin.py
 # -*- coding: utf-8 -*-
 """
-Handler for all Super Admin commands.
-This file acts as the entry point, validates permissions, and routes
-commands to the appropriate logic in admin_utils.
+Admin command handler (final, robust)
+- รองรับทั้งรูปแบบเก่า:  /admin_approve <id>, /admin_remove <id>, /admin_users
+- และรูปแบบใหม่:         /admin approve <id|@username>, /admin remove <id|@username>, /admin users
+- ตรวจสิทธิ์ Super Admin ด้วย utils.admin_utils.is_super_admin
+- ใช้ approve/remove แบบ "by_identifier" เพื่อรองรับทั้งตัวเลขและ @username
 """
-from __future__ import annotations
-from typing import Dict, Any
 
-# --- ✅ ส่วนที่เราแก้ไข: import เครื่องมือที่จำเป็น ---
+from __future__ import annotations
+from typing import Dict, Any, List
+
 from utils.telegram_api import send_message
-from utils.admin_utils import is_super_admin, approve_user, list_all_users, remove_user # เพิ่ม remove_user
+from utils.admin_utils import (
+    is_super_admin,
+    list_all_users,
+    approve_user_by_identifier,
+    remove_user_by_identifier,
+)
+
+# ---------- Helpers ----------
+
+def _admin_help() -> str:
+    return (
+        "**Admin commands**\n"
+        "รูปแบบใหม่:\n"
+        "• `/admin approve <user_id|@username>` — อนุมัติผู้ใช้\n"
+        "• `/admin remove <user_id|@username>` — ระงับผู้ใช้\n"
+        "• `/admin users` — ดูรายชื่อผู้ใช้ทั้งหมด\n\n"
+        "รูปแบบเก่า (ยังใช้ได้):\n"
+        "• `/admin_approve <user_id>`\n"
+        "• `/admin_remove <user_id>`\n"
+        "• `/admin_users`"
+    )
+
+def _send_usage(user_id: int, sub: str) -> None:
+    if sub == "approve":
+        send_message(user_id, "วิธีใช้: `/admin approve <user_id|@username>`", parse_mode="Markdown")
+    elif sub == "remove":
+        send_message(user_id, "วิธีใช้: `/admin remove <user_id|@username>`", parse_mode="Markdown")
+    else:
+        send_message(user_id, _admin_help(), parse_mode="Markdown")
+
+# ---------- Entry Point ----------
 
 def handle_admin_command(user_info: Dict[str, Any], user_text: str) -> None:
-    """
-    The main entry point for all admin commands.
-    It first checks for Super Admin privileges before dispatching the command.
-    """
-    user_id = user_info['profile']['user_id']
-    user_name = user_info['profile']['first_name']
-    
-    # --- 1. Security Check: ตรวจสอบว่าเป็น Super Admin หรือไม่ ---
+    user_id = int(user_info["profile"]["user_id"])
+    user_name = user_info["profile"].get("first_name", "")
+
+    # 1) Security check
     if not is_super_admin(user_id):
-        print(f"[Admin] Unauthorized access attempt by user {user_name} (ID: {user_id})")
+        print(f"[Admin] Unauthorized access by {user_name} ({user_id}) -> '{user_text}'")
         send_message(user_id, "⛔️ ขออภัยครับ คุณไม่มีสิทธิ์ใช้คำสั่งสำหรับผู้ดูแลระบบครับ")
         return
-        
-    parts = user_text.strip().split()
-    command = parts[0].lower()
-    
-    print(f"[Admin] Received command '{command}' from Super Admin {user_name}")
 
-    # --- 2. Command Router: แยกการทำงานตามคำสั่ง ---
-    try:
-        if command == "/admin_approve":
-            if len(parts) < 2 or not parts[1].isdigit():
-                send_message(user_id, "วิธีใช้ที่ถูกต้อง: `/admin_approve <user_id>`")
+    # 2) Normalize tokens
+    tokens: List[str] = (user_text or "").strip().split()
+    if not tokens:
+        send_message(user_id, _admin_help(), parse_mode="Markdown")
+        return
+
+    base = tokens[0].lower()
+    args = tokens[1:]
+
+    # ----- Legacy style: /admin_approve, /admin_remove, /admin_users -----
+    if base == "/admin_approve":
+        if not args:
+            _send_usage(user_id, "approve")
+            return
+        target = args[0]
+        reply = approve_user_by_identifier(target)
+        send_message(user_id, reply, parse_mode="Markdown")
+        return
+
+    if base == "/admin_remove":
+        if not args:
+            _send_usage(user_id, "remove")
+            return
+        target = args[0]
+        reply = remove_user_by_identifier(target)
+        send_message(user_id, reply, parse_mode="Markdown")
+        return
+
+    if base == "/admin_users":
+        reply = list_all_users()
+        send_message(user_id, reply, parse_mode="Markdown")
+        return
+
+    # ----- New style: /admin <subcommand> [args...] -----
+    if base == "/admin":
+        if not args:
+            send_message(user_id, _admin_help(), parse_mode="Markdown")
+            return
+
+        sub = args[0].lower()
+        sub_args = args[1:]
+
+        if sub == "approve":
+            if not sub_args:
+                _send_usage(user_id, "approve")
                 return
-            target_user_id = int(parts[1])
-            reply = approve_user(target_user_id)
+            target = sub_args[0]
+            reply = approve_user_by_identifier(target)
             send_message(user_id, reply, parse_mode="Markdown")
-            
-        elif command == "/admin_users":
+            return
+
+        if sub == "remove":
+            if not sub_args:
+                _send_usage(user_id, "remove")
+                return
+            target = sub_args[0]
+            reply = remove_user_by_identifier(target)
+            send_message(user_id, reply, parse_mode="Markdown")
+            return
+
+        if sub in ("users", "list", "ls"):
             reply = list_all_users()
             send_message(user_id, reply, parse_mode="Markdown")
-            
-        elif command == "/admin_remove":
-            if len(parts) < 2 or not parts[1].isdigit():
-                send_message(user_id, "วิธีใช้ที่ถูกต้อง: `/admin_remove <user_id>`")
-                return
-            target_user_id = int(parts[1])
-            reply = remove_user(target_user_id)
-            send_message(user_id, reply, parse_mode="Markdown")
+            return
 
-        # เพิ่มคำสั่งอื่นๆ ที่นี่ในอนาคต เช่น /admin_role
-        else:
-            send_message(user_id, f"ผมไม่รู้จักคำสั่งผู้ดูแลระบบ '{command}' ครับ ลองใช้ /help ดูนะครับ")
-            
-    except Exception as e:
-        print(f"[handle_admin_command] An unhandled error occurred: {e}")
-        send_message(user_id, f"❌ ขออภัยครับ เกิดข้อผิดพลาดในการทำงานของคำสั่งแอดมิน: {e}")
+        # Unknown subcommand
+        send_message(user_id, f"ผมไม่รู้จักคำสั่งผู้ดูแลระบบ '`{sub}`' ครับ\n\n" + _admin_help(), parse_mode="Markdown")
+        return
+
+    # Fallback: not recognized
+    send_message(user_id, _admin_help(), parse_mode="Markdown")
