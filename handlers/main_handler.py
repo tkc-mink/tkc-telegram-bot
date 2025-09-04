@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 Main Message Handler (The Bot's Brain) — FINAL, stable & backward-compatible
-- แก้ NameError: ใช้ tg_send_message และทำ alias เป็น send_message
+- ใช้ tg_send_message (พร้อม alias send_message)
 - กันประมวลผลซ้ำด้วย update_id (dedupe ในตัว; ถ้ามี utils.dedupe จะใช้ของเดิมอัตโนมัติ)
 - คงฟีเจอร์เดิมทั้งหมด: history/review/weather/doc/gold/lottery/stock/crypto/oil/report/faq/favorite/admin
-- รองรับข้อความ location, document และคำสั่ง /start, /help, /whoami (ชื่ออะไร/คุณคือใคร)
+- รองรับข้อความ location, document และคำสั่ง /start, /help, /whoami (และ trigger ภาษาไทย)
 """
 
 from __future__ import annotations
@@ -30,8 +30,7 @@ from handlers.admin import handle_admin_command
 
 # ===== Utility Imports =====
 from utils.telegram_api import send_message as tg_send_message  # ชื่อมาตรฐาน
-# ทำ alias เพื่อ backward-compat กรณีโค้ดที่อื่นยังเรียก send_message
-send_message = tg_send_message
+send_message = tg_send_message  # alias เพื่อรองรับโค้ดเก่า
 
 from function_calling import process_with_function_calling, summarize_text_with_gpt
 from utils.bot_profile import bot_intro
@@ -46,8 +45,6 @@ from utils.memory_store import (
 from utils.admin_utils import notify_super_admin_for_approval
 
 # ===== Optional external dedupe support =====
-# ถ้าโปรเจกต์มี utils.dedupe.seen_update อยู่แล้ว จะใช้ของเดิม
-# ถ้าไม่มี เราจะใช้ตัวในไฟล์นี้ (LRU แบบง่าย TTL 10 นาที)
 try:
     from utils.dedupe import seen_update as _ext_seen_update  # type: ignore
 except Exception:  # pragma: no cover
@@ -62,13 +59,12 @@ def _seen_update(update_id: int) -> bool:
     """return True ถ้าเคยเห็น update_id ใน TTL; False ถ้ายังไม่เคย"""
     if _ext_seen_update:
         try:
-            return _ext_seen_update(update_id)  # ใช้ของโปรเจกต์ถ้ามี
+            return _ext_seen_update(update_id)
         except Exception:
-            # หากของเดิมพัง ให้ตกกลับมาใช้ in-file dedupe
             pass
 
     now = time.time()
-    # ล้างของหมดอายุ (ทำแบบขี้เกียจแต่พอเพียง)
+    # ล้างของหมดอายุ
     for k, ts in list(_RECENT_UPDATES.items()):
         if now - ts > _DEDUPE_TTL_SEC:
             _RECENT_UPDATES.pop(k, None)
@@ -91,38 +87,39 @@ def _send_help(chat_id: int) -> None:
         "• `/oil` — ราคาน้ำมัน\n"
         "• `/review 1..5` — ให้คะแนนการทำงานของบอท\n"
         "• `/favorite_list` — ดูรายการโปรด\n"
-        "• `/report` / `/summary` — สรุปภาพรวมการใช้งาน\n\n"
+        "• `/report` / `/summary` — สรุปภาพรวมการใช้งาน\n"
+        "• `/whoami` — ผมคือใคร / ข้อมูลบอท\n\n"
         "พิมพ์คุยธรรมดาได้เลย ผมจะพยายามช่วยเต็มที่ครับ!"
     )
     tg_send_message(chat_id, text, parse_mode="Markdown")
 
 
 def _handle_start(user_info: Dict[str, Any], text: str) -> None:
-    chat_id = user_info["profile"]["user_id"]
+    user_id = user_info["profile"]["user_id"]
     first_name = user_info["profile"].get("first_name") or ""
-    tg_send_message(chat_id, f"ยินดีต้อนรับกลับมาครับคุณ {first_name}! มีอะไรให้ 'ชิบะน้อย' รับใช้ไหมครับ")
-    _send_help(chat_id)
+    tg_send_message(user_id, f"ยินดีต้อนรับกลับมาครับคุณ {first_name}! มีอะไรให้ 'ชิบะน้อย' รับใช้ไหมครับ")
+    _send_help(user_id)
 
 
 def _handle_whoami(user_info: Dict[str, Any], text: str) -> None:
-    chat_id = user_info["profile"]["user_id"]
-    tg_send_message(chat_id, bot_intro())
+    user_id = user_info["profile"]["user_id"]
+    tg_send_message(user_id, bot_intro())
 
 
 def _handle_location_message(user_info: Dict[str, Any], msg: Dict[str, Any]) -> None:
     """บันทึกพิกัดลงโปรไฟล์ถาวร แล้วชวนใช้ /weather"""
-    chat_id = user_info["profile"]["user_id"]
+    user_id = user_info["profile"]["user_id"]  # ระบุให้ชัดว่าเป็น user_id
     user_name = user_info["profile"].get("first_name") or ""
     loc = msg.get("location") or {}
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is None or lon is None:
-        tg_send_message(chat_id, "❌ ตำแหน่งที่ส่งมาไม่ถูกต้อง")
+        tg_send_message(user_id, "❌ ตำแหน่งที่ส่งมาไม่ถูกต้อง")
         return
-    ok = update_user_location(chat_id, float(lat), float(lon))
+    ok = update_user_location(user_id, float(lat), float(lon))
     if ok:
-        tg_send_message(chat_id, f"✅ ขอบคุณครับคุณ {user_name}! ผมบันทึกตำแหน่งของคุณแล้ว ลองใช้ /weather ได้เลยครับ")
+        tg_send_message(user_id, f"✅ ขอบคุณครับคุณ {user_name}! ผมบันทึกตำแหน่งของคุณแล้ว ลองใช้ /weather ได้เลยครับ")
     else:
-        tg_send_message(chat_id, "❌ ขออภัยครับ เกิดปัญหาในการบันทึกตำแหน่ง")
+        tg_send_message(user_id, "❌ ขออภัยครับ เกิดปัญหาในการบันทึกตำแหน่ง")
 
 
 # ===== Command Router =====
@@ -130,6 +127,7 @@ COMMAND_HANDLERS: Dict[str, Callable[[Dict[str, Any], str], Any]] = {
     # Slash commands
     "/start": _handle_start,
     "/help": lambda ui, txt: _send_help(ui["profile"]["user_id"]),
+    "/whoami": _handle_whoami,
     "/my_history": handle_history,
     "/gold": handle_gold,
     "/lottery": handle_lottery,
@@ -184,19 +182,25 @@ def handle_message(data: Dict[str, Any]) -> None:
             return
 
         profile = user_info.get("profile", {})
-        status_top = user_info.get("status")               # ชั้นบนสุด (เดิม)
-        status_prof = profile.get("status")                # ในโปรไฟล์
+        status_top = user_info.get("status")        # สถานะรายงานจาก get_or_create_user (เช่น new_user_pending/returning_user)
+        status_prof = profile.get("status")         # สถานะจริงในโปรไฟล์ (pending/approved/removed)
 
         # --- ขั้นอนุมัติผู้ใช้ใหม่ ---
-        if status_top == "new_user_pending" or status_prof == "pending":
+        # แจ้ง Admin เฉพาะครั้งแรกที่เพิ่งสร้างผู้ใช้ (new_user_pending) เท่านั้น
+        if status_top == "new_user_pending":
             tg_send_message(chat_id, "สวัสดีครับ! คำขอเข้าใช้งานของคุณถูกส่งให้ผู้ดูแลแล้ว กรุณารอสักครู่ครับ")
-            # แจ้งผู้ดูแล (อย่าบล็อคเธรดนาน)
             try:
                 notify_super_admin_for_approval(user_data)
             except Exception:
                 traceback.print_exc()
             return
 
+        # กรณีรออนุมัติอยู่ (pending) — แจ้งผู้ใช้ แต่อย่ารบกวนแอดมินซ้ำ
+        if status_prof == "pending":
+            tg_send_message(chat_id, "บัญชีของคุณกำลังรอผู้ดูแลอนุมัติครับ กรุณารอสักครู่")
+            return
+
+        # ถูกระงับ/ไม่อนุญาต
         if status_prof not in (None, "approved") and status_prof != "approved":
             tg_send_message(chat_id, "บัญชีของคุณไม่ได้รับอนุญาตให้ใช้งานระบบครับ")
             return
