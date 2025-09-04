@@ -5,11 +5,11 @@ Main Message Handler (The Bot's Brain) — FINAL, stable & backward-compatible
 - ใช้ tg_send_message (พร้อม alias send_message)
 - กันประมวลผลซ้ำด้วย update_id (dedupe ในตัว; ถ้ามี utils.dedupe จะใช้ของเดิมอัตโนมัติ)
 - คงฟีเจอร์เดิมทั้งหมด: history/review/weather/doc/gold/lottery/stock/crypto/oil/report/faq/favorite/admin
-- รองรับข้อความ location, document และคำสั่ง /start, /help, /whoami (และ trigger ภาษาไทย)
+- รองรับข้อความ location, document และคำสั่ง /start, /help, /whoami, /reset (และ trigger ภาษาไทย)
 """
 
 from __future__ import annotations
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, List
 import time
 import traceback
 
@@ -33,6 +33,12 @@ from utils.telegram_api import send_message as tg_send_message  # ชื่อ�
 send_message = tg_send_message  # alias เพื่อรองรับโค้ดเก่า
 
 from function_calling import process_with_function_calling, summarize_text_with_gpt
+# สำหรับ /reset เราจะล้าง session Gemini โดยตรง
+try:
+    from function_calling import CHAT_SESSIONS as _CHAT_SESSIONS  # type: ignore
+except Exception:
+    _CHAT_SESSIONS = None  # ถ้าไม่มีจะข้ามฟีเจอร์ /reset ให้ยังตอบได้ตามปกติ
+
 from utils.bot_profile import bot_intro
 from utils.memory_store import (
     get_or_create_user,
@@ -75,7 +81,24 @@ def _seen_update(update_id: int) -> bool:
     return False
 
 
-# ===== Helper Functions =====
+# ===== Helpers =====
+def _chunk_text(text: str, limit: int = 4000) -> List[str]:
+    """ตัดข้อความยาวเป็นชิ้น ๆ เพื่อไม่ให้ชนเพดาน Telegram (4096)"""
+    if not text:
+        return [""]
+    out, cur = [], []
+    size = 0
+    for line in text.splitlines(True):  # เก็บ \n เดิมไว้
+        L = len(line)
+        if size + L > limit and cur:
+            out.append("".join(cur))
+            cur, size = [], 0
+        cur.append(line)
+        size += L
+    if cur:
+        out.append("".join(cur))
+    return out or [""]
+
 def _send_help(chat_id: int) -> None:
     text = (
         "**รายการคำสั่งที่ใช้ได้ครับ**\n\n"
@@ -88,11 +111,11 @@ def _send_help(chat_id: int) -> None:
         "• `/review 1..5` — ให้คะแนนการทำงานของบอท\n"
         "• `/favorite_list` — ดูรายการโปรด\n"
         "• `/report` / `/summary` — สรุปภาพรวมการใช้งาน\n"
-        "• `/whoami` — ผมคือใคร / ข้อมูลบอท\n\n"
+        "• `/whoami` — ผมคือใคร / ข้อมูลบอท\n"
+        "• `/reset` — ล้างบริบทสนทนาล่าสุด (รีเฟรชสมองชิบะน้อย)\n\n"
         "พิมพ์คุยธรรมดาได้เลย ผมจะพยายามช่วยเต็มที่ครับ!"
     )
     tg_send_message(chat_id, text, parse_mode="Markdown")
-
 
 def _handle_start(user_info: Dict[str, Any], text: str) -> None:
     user_id = user_info["profile"]["user_id"]
@@ -100,15 +123,26 @@ def _handle_start(user_info: Dict[str, Any], text: str) -> None:
     tg_send_message(user_id, f"ยินดีต้อนรับกลับมาครับคุณ {first_name}! มีอะไรให้ 'ชิบะน้อย' รับใช้ไหมครับ")
     _send_help(user_id)
 
-
 def _handle_whoami(user_info: Dict[str, Any], text: str) -> None:
     user_id = user_info["profile"]["user_id"]
     tg_send_message(user_id, bot_intro())
 
+def _handle_reset(user_info: Dict[str, Any], text: str) -> None:
+    """ล้าง ChatSession ของ Gemini สำหรับผู้ใช้นี้ (ไม่ลบประวัติใน DB)"""
+    user_id = user_info["profile"]["user_id"]
+    if _CHAT_SESSIONS is not None:
+        try:
+            _CHAT_SESSIONS.pop(int(user_id), None)
+            tg_send_message(user_id, "✅ ล้างบริบทสนทนาให้แล้วครับ (ChatSession รีเฟรช)")
+        except Exception:
+            traceback.print_exc()
+            tg_send_message(user_id, "❌ ล้างบริบทไม่สำเร็จครับ แต่คุณยังใช้งานต่อได้ตามปกติ")
+    else:
+        tg_send_message(user_id, "ตอนนี้ยังไม่รองรับ /reset ในเวอร์ชันนี้ครับ")
 
 def _handle_location_message(user_info: Dict[str, Any], msg: Dict[str, Any]) -> None:
     """บันทึกพิกัดลงโปรไฟล์ถาวร แล้วชวนใช้ /weather"""
-    user_id = user_info["profile"]["user_id"]  # ระบุให้ชัดว่าเป็น user_id
+    user_id = user_info["profile"]["user_id"]
     user_name = user_info["profile"].get("first_name") or ""
     loc = msg.get("location") or {}
     lat, lon = loc.get("latitude"), loc.get("longitude")
@@ -128,6 +162,7 @@ COMMAND_HANDLERS: Dict[str, Callable[[Dict[str, Any], str], Any]] = {
     "/start": _handle_start,
     "/help": lambda ui, txt: _send_help(ui["profile"]["user_id"]),
     "/whoami": _handle_whoami,
+    "/reset": _handle_reset,
     "/my_history": handle_history,
     "/gold": handle_gold,
     "/lottery": handle_lottery,
@@ -150,7 +185,6 @@ COMMAND_HANDLERS: Dict[str, Callable[[Dict[str, Any], str], Any]] = {
     "ชื่ออะไร": _handle_whoami,
     "คุณคือใคร": _handle_whoami,
 }
-
 
 # ===== Main Entry =====
 def handle_message(data: Dict[str, Any]) -> None:
@@ -182,11 +216,10 @@ def handle_message(data: Dict[str, Any]) -> None:
             return
 
         profile = user_info.get("profile", {})
-        status_top = user_info.get("status")        # สถานะรายงานจาก get_or_create_user (เช่น new_user_pending/returning_user)
-        status_prof = profile.get("status")         # สถานะจริงในโปรไฟล์ (pending/approved/removed)
+        status_top = user_info.get("status")        # new_user_pending / returning_user
+        status_prof = profile.get("status")         # pending / approved / removed
 
         # --- ขั้นอนุมัติผู้ใช้ใหม่ ---
-        # แจ้ง Admin เฉพาะครั้งแรกที่เพิ่งสร้างผู้ใช้ (new_user_pending) เท่านั้น
         if status_top == "new_user_pending":
             tg_send_message(chat_id, "สวัสดีครับ! คำขอเข้าใช้งานของคุณถูกส่งให้ผู้ดูแลแล้ว กรุณารอสักครู่ครับ")
             try:
@@ -195,12 +228,10 @@ def handle_message(data: Dict[str, Any]) -> None:
                 traceback.print_exc()
             return
 
-        # กรณีรออนุมัติอยู่ (pending) — แจ้งผู้ใช้ แต่อย่ารบกวนแอดมินซ้ำ
         if status_prof == "pending":
             tg_send_message(chat_id, "บัญชีของคุณกำลังรอผู้ดูแลอนุมัติครับ กรุณารอสักครู่")
             return
 
-        # ถูกระงับ/ไม่อนุญาต
         if status_prof not in (None, "approved") and status_prof != "approved":
             tg_send_message(chat_id, "บัญชีของคุณไม่ได้รับอนุญาตให้ใช้งานระบบครับ")
             return
@@ -232,6 +263,7 @@ def handle_message(data: Dict[str, Any]) -> None:
         append_message(user_id, "user", user_text)
         ctx = get_recent_context(user_id)
         summary = get_summary(user_id)
+
         try:
             reply = process_with_function_calling(
                 user_info,
@@ -243,7 +275,13 @@ def handle_message(data: Dict[str, Any]) -> None:
             traceback.print_exc()
             reply = "ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล"
 
-        tg_send_message(chat_id, reply)
+        # ส่งข้อความแบบปลอดภัย (กันเกิน 4096 ตัวอักษร)
+        for chunk in _chunk_text(reply):
+            try:
+                tg_send_message(chat_id, chunk)
+            except Exception:
+                traceback.print_exc()
+
         append_message(user_id, "assistant", reply)
 
         # จัดการบริบทและสรุปย่อเพื่อไม่ให้โตเกิน
@@ -256,4 +294,7 @@ def handle_message(data: Dict[str, Any]) -> None:
         # ไม่เผยรายละเอียด error ให้ผู้ใช้ แต่ log เต็มใน Render
         print(f"[MAIN_HANDLER ERROR] {e}\n{traceback.format_exc()}")
         if chat_id:
-            tg_send_message(chat_id, "ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล")
+            try:
+                tg_send_message(chat_id, "ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล")
+            except Exception:
+                pass
