@@ -4,17 +4,16 @@
 Function Calling Engine (Gemini, ChatSession)
 - ใช้ Gemini v1 + ChatSession เพื่อสนทนาแบบหลายเทิร์น (มีบริบทต่อเนื่อง)
 - รองรับฟังก์ชัน (tools) ที่บอทเรียกใช้ข้อมูลสด: weather/gold/news/stock/oil/lottery/crypto
-- คง "ชื่อฟังก์ชัน" เดิมให้ไฟล์อื่นเรียกได้ทันที:
+- API คงเดิม:
     - process_with_function_calling(user_info, user_text, ctx=None, conv_summary=None)
     - summarize_text_with_gpt(text)
 """
-
 from __future__ import annotations
 from typing import List, Dict, Any
 import google.generativeai as genai
 
-# ใช้ยูทิล Gemini ที่คุณมีอยู่ (รุ่น PRO/FLASH และ text helper)
-from utils.gemini_client import MODEL_PRO, generate_text
+# Gemini helpers
+from utils.gemini_client import MODEL_PRO, generate_text  # MODEL_PRO เผื่อใช้ต่อยอด
 
 # ---------- Tool functions ----------
 from utils.weather_utils import get_weather_forecast
@@ -64,8 +63,8 @@ TOOL_CONFIG = {
 # ---------- Model with tools & system ----------
 try:
     gemini_model_with_tools = genai.GenerativeModel(
-        model_name="gemini-1.5-flash-latest",           # เร็วและคุ้ม
-        tools=[TOOL_CONFIG],                             # ต้องเป็น list
+        model_name="gemini-1.5-flash-latest",
+        tools=[TOOL_CONFIG],  # ต้องเป็น list
         system_instruction=SYSTEM_PROMPT,
     )
 except Exception as e:
@@ -85,25 +84,18 @@ def _dispatch_tool(user_info: Dict[str, Any], fname: str, args: Dict[str, Any]) 
             if lat is None or lon is None:
                 return "ชิบะน้อยยังไม่รู้ตำแหน่งของคุณเลยครับ ช่วยแชร์ตำแหน่งให้ก่อนนะครับ"
             return get_weather_forecast(lat, lon)
-
         if fname == "get_gold_price":
             return get_gold_price()
-
         if fname == "get_news":
             return get_news(args.get("topic", "ข่าวล่าสุด"))
-
         if fname == "get_stock_info":
             return get_stock_info_from_google(args.get("symbol", "PTT.BK"))
-
         if fname == "get_oil_price":
             return get_oil_price_from_google()
-
         if fname == "get_lottery_result":
             return get_lottery_result()
-
         if fname == "get_crypto_price":
             return get_crypto_price_from_google(args.get("symbol", "BTC"))
-
         return f"เอ๊ะ... ชิบะน้อยไม่รู้จักเครื่องมือที่ชื่อ {fname} ครับ"
     except Exception as e:
         print(f"[function_dispatch] {fname} error: {e}")
@@ -117,11 +109,6 @@ def process_with_function_calling(
     ctx: List[Dict[str, str]] | None = None,
     conv_summary: str | None = None,
 ) -> str:
-    """
-    entry point ที่ main_handler เรียกใช้
-    - รวม context/summary ใส่ ChatSession หนึ่งครั้งตอนสร้าง
-    - ส่งข้อความล่าสุดเข้า session → ถ้ามี function_call ก็เรียก tool แล้ว feed กลับ
-    """
     if not gemini_model_with_tools:
         return "แย่จัง! ตอนนี้สมองของชิบะน้อยไม่ทำงานครับ"
 
@@ -133,16 +120,11 @@ def process_with_function_calling(
     if user_id not in CHAT_SESSIONS:
         print(f"[ChatSession] create new session for user {user_id}")
         history = []
-
-        # seed: summary ก่อน (ถ้ามี) — ใส่เป็น user part ให้โมเดลมองเห็นเป็นบริบท
         if conv_summary:
             history.append({"role": "user", "parts": [{"text": f"[สรุปก่อนหน้า]\n{conv_summary}"}]})
-
-        # seed: ประวัติย่อจาก ctx
         for m in ctx[-12:]:
             role = "user" if m.get("role") == "user" else "model"
             history.append({"role": role, "parts": [{"text": m.get("content", "")}]})
-
         chat = gemini_model_with_tools.start_chat(history=history)
         CHAT_SESSIONS[user_id] = chat
     else:
@@ -152,23 +134,36 @@ def process_with_function_calling(
     try:
         resp = chat.send_message(user_text)
 
-        # กรณีโมเดลตอบปกติ
-        if not resp.parts:
+        # ถ้าไม่มี parts เลย ให้ส่งข้อความธรรมดา
+        if not getattr(resp, "parts", None):
+            return (getattr(resp, "text", "") or "").strip() or "ขอโทษครับ ผมยังตอบไม่ได้ในตอนนี้ ลองใหม่อีกครั้งนะครับ"
+
+        # หา part ที่มี function_call จริง ๆ (บางครั้งไม่ได้อยู่ index 0)
+        fpart = None
+        for p in resp.parts:
+            if getattr(p, "function_call", None):
+                fpart = p
+                break
+
+        # ถ้าไม่มี function_call → ส่งข้อความที่โมเดลตอบ
+        if fpart is None:
             return (resp.text or "").strip() or "ขอโทษครับ ผมยังตอบไม่ได้ในตอนนี้ ลองใหม่อีกครั้งนะครับ"
 
-        first = resp.parts[0]
-        # ถ้าไม่มี function_call ก็ส่งข้อความที่ตอบมาเลย
-        if not hasattr(first, "function_call") or first.function_call is None:
-            return (resp.text or "").strip() or "ขอโทษครับ ผมยังตอบไม่ได้ในตอนนี้ ลองใหม่อีกครั้งนะครับ"
+        fcall = fpart.function_call
+        fname = getattr(fcall, "name", "")
+        raw_args = getattr(fcall, "args", None)
 
-        # 3) มี function_call → เรียก tool
-        fcall = first.function_call
-        fname = fcall.name
-        fargs = {k: v for k, v in fcall.args.items()}  # dict-like
+        # ✅ รองรับกรณี args = None / dict-like
+        if hasattr(raw_args, "items"):
+            fargs = {k: v for k, v in raw_args.items()}
+        elif isinstance(raw_args, dict):
+            fargs = raw_args
+        else:
+            fargs = {}
 
         tool_result = _dispatch_tool(user_info, fname, fargs)
 
-        # 4) feed คำตอบจาก tool กลับเข้า session เดิม
+        # 4) feed คำตอบของ tool กลับเข้า session เดิม
         resp2 = chat.send_message(
             part=genai.types.FunctionResponse(name=fname, response={"result": tool_result})
         )
@@ -176,7 +171,7 @@ def process_with_function_calling(
 
     except Exception as e:
         print(f"[process_with_function_calling] Error: {e}")
-        # เคลียร์ session ผู้ใช้คนนี้เพื่อกันลูปพังซ้ำ ๆ
+        # เคลียร์ session เพื่อกันลูปพังซ้ำ ๆ
         try:
             del CHAT_SESSIONS[user_id]
         except Exception:
@@ -185,16 +180,12 @@ def process_with_function_calling(
 
 
 def summarize_text_with_gpt(text: str) -> str:
-    """
-    ใช้ Gemini ทำสรุป (คงชื่อฟังก์ชันเดิมไว้เพื่อความเข้ากันได้กับ memory_store)
-    """
     prompt = (
         "สรุปใจความสำคัญต่อไปนี้แบบสั้น กระชับ เป็นข้อ ๆ ไม่เกิน 6 บรรทัด "
         "ใช้ภาษาไทยล้วน เน้นสาระที่ควรเก็บไว้เป็นบริบทคุยต่อไป:\n\n"
         f"{text}"
     )
     try:
-        # ขอความแม่นยำมากขึ้นด้วย heuristic เล็กน้อย
         prefer_strong = len(text) > 800
         return generate_text(prompt, prefer_strong=prefer_strong) or ""
     except Exception:
