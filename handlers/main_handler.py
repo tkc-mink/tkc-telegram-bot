@@ -1,22 +1,21 @@
 # handlers/main_handler.py
 # -*- coding: utf-8 -*-
 """
-Main Message Handler (The Bot's Brain) — FINAL, stable & backward-compatible
+Main Message Handler (The Bot's Brain) — STABLE
 - ใช้ send_message (wrapper) ที่แบ่งข้อความอัตโนมัติ/กัน no-echo
-- กันประมวลผลซ้ำด้วย update_id (dedupe ในตัว; ถ้ามี utils.dedupe จะใช้ของเดิมอัตโนมัติ)
+- กันประมวลผลซ้ำด้วย update_id (dedupe)
 - คงฟีเจอร์เดิมทั้งหมด: history/review/weather/doc/gold/lottery/stock/crypto/oil/report/faq/favorite/admin
 - รองรับข้อความ location, document และคำสั่ง /start, /help, /whoami, /reset (และ trigger ภาษาไทย)
 
-[อัปเดตใหม่]
-- รวมร่าง GPT + Gemini ผ่าน Orchestrator: เลือกจุดแข็งแต่ละฝั่งอัตโนมัติ
-- มี fallback อัตโนมัติถ้าตัวแรกไม่มั่นใจ/มีปัญหา
-- รวม facts จาก utils (weather/gold/oil/stock/crypto/news) ก่อนส่งให้โมเดล (ผ่าน aggregator ใน orchestrator)
-- แสดงสถานะกำลังพิมพ์ (typing action) ระหว่างประมวลผล
+อัปเดตสำคัญ
+- รวม Orchestrator (GPT+Gemini) พร้อม fallback engine เดิม
 - ตรวจ daily usage limit (ข้อความ/รูป) ด้วย utils.context_utils
+- เพิ่มการเชื่อมกับคำสั่งสำรอง/กู้คืน Google Drive ผ่าน handlers.backup.handle_backup_command
+  (เรียกหลังตรวจสิทธิ์เข้าใช้งานของผู้ใช้ เพื่อไม่เปิดเผยข้อมูลแก่ผู้ใช้ที่ยังไม่อนุมัติ)
 """
 
 from __future__ import annotations
-from typing import Dict, Any, Callable, List
+from typing import Dict, Any, Callable
 import time
 import traceback
 
@@ -34,6 +33,9 @@ from handlers.report import handle_report
 from handlers.faq import handle_faq
 from handlers.favorite import handle_favorite
 from handlers.admin import handle_admin_command
+
+# ✅ Backup/Restore commands (เสถียร)
+from handlers.backup import handle_backup_command
 
 # ===== Messaging (wrapper ที่มี chunk/parse_mode/no-echo/retry) =====
 from utils.message_utils import send_message, send_typing_action
@@ -56,11 +58,10 @@ from utils.memory_store import (
 )
 from utils.admin_utils import notify_super_admin_for_approval
 
-# ===== Usage limit (ใหม่) =====
+# ===== Usage limit =====
 from utils.context_utils import check_and_increase_usage, get_usage_for
 
-# ===== Orchestrator (ใหม่) =====
-# เลือก GPT/Gemini อัตโนมัติตามประเภทคำถาม + ดึง facts ก่อนสรุปคำตอบ
+# ===== Orchestrator =====
 from orchestrator.orchestrate import orchestrate
 
 # ===== Optional external dedupe support =====
@@ -83,7 +84,7 @@ def _seen_update(update_id: int) -> bool:
             pass
 
     now = time.time()
-    # ล้างของหมดอายุ
+    # ล้างของหมดอายุ (ไม่ให้โตเกิน)
     for k, ts in list(_RECENT_UPDATES.items()):
         if now - ts > _DEDUPE_TTL_SEC:
             _RECENT_UPDATES.pop(k, None)
@@ -108,10 +109,11 @@ def _send_help(chat_id: int) -> None:
         "• `/favorite_list` — ดูรายการโปรด\n"
         "• `/report` / `/summary` — สรุปภาพรวมการใช้งาน\n"
         "• `/whoami` — ผมคือใคร / ข้อมูลบอท\n"
-        "• `/reset` — ล้างบริบทสนทนาล่าสุด (รีเฟรชสมองชิบะน้อย)\n\n"
+        "• `/reset` — ล้างบริบทสนทนาล่าสุด (รีเฟรชสมองชิบะน้อย)\n"
+        "• `/backup_status` — (อ่านสถานะสำรองล่าสุด)\n"
+        "• `/backup_now` / `/restore <YYYY-MM-DD|latest>` / `/list_snapshots` — <i>สำหรับแอดมิน</i>\n\n"
         "พิมพ์คุยธรรมดาได้เลย ผมจะพยายามช่วยเต็มที่ครับ!"
     )
-    # ใช้ Markdown ตามเดิม
     send_message(chat_id, text, parse_mode="Markdown")
 
 def _handle_start(user_info: Dict[str, Any], _text: str) -> None:
@@ -256,6 +258,14 @@ def handle_message(data: Dict[str, Any]) -> None:
             send_message(chat_id, "สวัสดีครับ มีอะไรให้ผมรับใช้ไหมครับ? พิมพ์ /help เพื่อดูคำสั่งได้เลยครับ")
             return
 
+        # === ✅ Backup/Restore Commands (เรียกหลังผ่าน approval gate) ===
+        try:
+            if handle_backup_command(data):
+                return
+        except Exception:
+            traceback.print_exc()
+            # ไม่ให้ผู้ใช้เห็นรายละเอียด error ตรงนี้
+
         # --- Router คำสั่งทั่วไป ---
         for command, handler in COMMAND_HANDLERS.items():
             if user_text_low.startswith(command):
@@ -281,14 +291,14 @@ def handle_message(data: Dict[str, Any]) -> None:
             # แสดงกำลังพิมพ์ระหว่างคิด
             send_typing_action(chat_id, "typing")
 
-            # Orchestrator จะ:
+            # Orchestrator:
             # - ตรวจ intent (lookup vs reasoning)
             # - ดึง facts จาก utils (aggregator) ตามที่จำเป็น
             # - เลือก GPT/Gemini อัตโนมัติ + Fallback
             result = orchestrate(user_text, context=ctx)
             reply = result.get("text", "") or "ขออภัยครับ ผมยังตอบไม่ได้ในตอนนี้"
-            meta = result.get("meta", {})
             try:
+                meta = result.get("meta", {})
                 print("[ORCH META]", meta)
             except Exception:
                 pass
