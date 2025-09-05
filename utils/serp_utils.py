@@ -2,23 +2,25 @@
 # -*- coding: utf-8 -*-
 """
 Stable SERP utilities (no API key required)
-- หุ้น: ดึงจาก Yahoo Finance quote API (server-side JSON, ไม่ต้องใช้ key)
-- น้ำมัน: WTI(CL=F) / Brent(BZ=F) จาก Yahoo Finance
-- สลากกินแบ่งฯ: lottoth-api (มี retry + ตรวจรูปแบบวันที่)
-- คริปโต: CoinGecko (simple price) + แมปสัญลักษณ์ยอดนิยม
 
-คุณสมบัติความเสถียร:
-- HTTP retry + exponential backoff + timeout กำหนดได้ผ่าน ENV
-- เคารพ 429 (retry_after ถ้ามี)
-- แคชชั่วคราวในหน่วยความจำ ลดการยิงซ้ำ (TTL ตั้งได้)
-- จัดรูปข้อความสวยงาม (Markdown) พร้อมอีโมจิ
-- Fallback เป็นข้อความ mock เมื่อ API ภายนอกล้มเหลว
+ฟีเจอร์หลัก
+- หุ้น (Yahoo Finance v7 quote): เดาสัญลักษณ์ฉลาดขึ้น (.BK / SET → ^SETI), ใส่โซนเวลา Asia/Bangkok
+- น้ำมัน (WTI=CL=F, Brent=BZ=F จาก Yahoo): สรุปชัดเจน พร้อมลูกศรแนวโน้ม
+- สลากกินแบ่งฯ (lottoth-api): รองรับงวดล่าสุด/ระบุวันที่, ตรวจรูปแบบวัน, มี retry+cache
+- คริปโต (CoinGecko simple/price): รองรับเหรียญฮิตจำนวนมาก, แสดง THB/ USD และ %24ชม.
+
+คุณสมบัติความเสถียร
+- HTTP retry + exponential backoff + timeout (ตั้งผ่าน ENV)
+- เคารพ 429 (อ่าน retry_after ถ้ามี)
+- แคชชั่วคราวในหน่วยความจำ (TTL ตั้งผ่าน ENV)
+- Markdown safe (escape ข้อความที่สุ่มเสี่ยง)
+- ข้อความพร้อมอีโมจิ, อ่านง่าย
 
 ENV ที่ตั้งค่าได้:
-- SERP_TIMEOUT                 (ดีฟอลต์ 10)
-- SERP_RETRIES                 (ดีฟอลต์ 2)      # รวมทั้งหมด = 1+SERP_RETRIES
-- SERP_BACKOFF_BASE_SEC        (ดีฟอลต์ 0.4)
-- SERP_CACHE_TTL_SEC           (ดีฟอลต์ 30)
+- SERP_TIMEOUT               (ดีฟอลต์ 10)
+- SERP_RETRIES               (ดีฟอลต์ 2)      # รวมทั้งหมด = 1 + SERP_RETRIES
+- SERP_BACKOFF_BASE_SEC      (ดีฟอลต์ 0.4)
+- SERP_CACHE_TTL_SEC         (ดีฟอลต์ 30)
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ import time
 import json
 import math
 import re
+import datetime as _dt
 
 import requests
 
@@ -37,7 +40,24 @@ RETRIES = int(os.getenv("SERP_RETRIES", "2"))
 BACKOFF_BASE = float(os.getenv("SERP_BACKOFF_BASE_SEC", "0.4"))
 CACHE_TTL = float(os.getenv("SERP_CACHE_TTL_SEC", "30"))
 
+# HTTP session + headers
 _session = requests.Session()
+_UA_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
+]
+def _headers() -> Dict[str, str]:
+    import random
+    return {
+        "User-Agent": random.choice(_UA_POOL),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "th,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Connection": "keep-alive",
+    }
+
 _cache: Dict[str, Tuple[float, Any]] = {}  # key -> (ts, value)
 
 # ---------- Helpers ----------
@@ -49,8 +69,11 @@ def _log(tag: str, **kw):
 
 def _retry_sleep(attempt: int, retry_after: Optional[float] = None):
     if retry_after is not None:
-        time.sleep(min(float(retry_after), 3.0))
-        return
+        try:
+            time.sleep(min(float(retry_after), 3.0))
+            return
+        except Exception:
+            pass
     delay = BACKOFF_BASE * (2 ** max(0, attempt - 1)) + 0.05 * attempt
     time.sleep(min(delay, 2.5))
 
@@ -58,7 +81,7 @@ def _http_get(url: str, params: Optional[Dict[str, Any]] = None, timeout: float 
     last_err = None
     for attempt in range(1, RETRIES + 2):
         try:
-            r = _session.get(url, params=params or {}, timeout=timeout)
+            r = _session.get(url, params=params or {}, headers=_headers(), timeout=timeout)
             if r.status_code == 429:
                 retry_after = None
                 try:
@@ -76,11 +99,13 @@ def _http_get(url: str, params: Optional[Dict[str, Any]] = None, timeout: float 
             if attempt <= RETRIES:
                 _retry_sleep(attempt)
         except requests.RequestException as e:
-            _log("HTTP_EXCEPTION", url=url, attempt=attempt, err=str(e))
+            last_err = str(e)
+            _log("HTTP_EXCEPTION", url=url, attempt=attempt, err=last_err)
             if attempt <= RETRIES:
                 _retry_sleep(attempt)
         except Exception as e:
-            _log("HTTP_UNKNOWN", url=url, attempt=attempt, err=str(e))
+            last_err = str(e)
+            _log("HTTP_UNKNOWN", url=url, attempt=attempt, err=last_err)
             if attempt <= RETRIES:
                 _retry_sleep(attempt)
     _log("HTTP_GIVEUP", url=url, last_err=str(last_err) if last_err else None)
@@ -97,58 +122,84 @@ def _cache_get(key: str):
 def _cache_put(key: str, val: Any):
     _cache[key] = (time.time(), val)
 
+# ---- Markdown helpers (Telegram Markdown v1 safe enough) ----
+_MD_ESC = str.maketrans({
+    "_": r"\_",
+    "*": r"\*",
+    "[": r"\[",
+    "]": r"\]",
+    "(": r"\(",
+    ")": r"\)",
+    "~": r"\~",
+    "`": r"\`",
+    ">": r"\>",
+    "#": r"\#",
+    "+": r"\+",
+    "-": r"\-",
+    "=": r"\=",
+    "|": r"\|",
+    "{": r"\{",
+    "}": r"\}",
+    ".": r"\.",
+    "!": r"\!",
+})
+def _md(s: Any) -> str:
+    try:
+        return str(s).translate(_MD_ESC)
+    except Exception:
+        return str(s)
+
+# ---- Numbers & arrows ----
 def _fmt_num(n: float, digits: int = 2) -> str:
     try:
         if n is None or (isinstance(n, float) and (math.isnan(n) or math.isinf(n))):
             return "-"
-        # ตัดทศนิยมอัจฉริยะ: ราคาใหญ่ใช้ 2 ตำแหน่ง, เล็กใช้ 4
-        if abs(n) >= 1000:
-            return f"{n:,.2f}"
         if abs(n) >= 1:
             return f"{n:,.2f}"
         return f"{n:,.4f}"
     except Exception:
         return str(n)
 
-def _arrow(change: float) -> str:
-    if change is None:
-        return ""
-    return "📈" if change > 0 else ("📉" if change < 0 else "➖")
-
-def _percent(n: float) -> str:
+def _arrow(change: Optional[float]) -> str:
     try:
+        if change is None:
+            return ""
+        return "📈" if change > 0 else ("📉" if change < 0 else "➖")
+    except Exception:
+        return ""
+
+def _percent(n: Optional[float]) -> str:
+    try:
+        if n is None:
+            return "-"
         return f"{n:.2f}%"
     except Exception:
         return "-"
 
-def _ensure_symbol_inferred(raw: str) -> str:
-    """
-    พยายามเดาสัญลักษณ์จากข้อความที่ผู้ใช้พิมพ์:
-    - ถ้าเป็น SET ให้แมปเป็น ^SETI (Yahoo)
-    - ถ้าเป็นตัวอักษร 2–5 ตัว ไม่มีจุด → อาจเป็นหุ้นไทย เติม .BK
-    """
-    s = (raw or "").strip().upper()
-    # ดึงโทเค็นที่ดูเหมือนสัญลักษณ์ที่สุด (ตัวเลข/ตัวอักษร/จุด/ขีด)
-    m = re.search(r"[A-Z0-9.\-^]{1,12}", s)
-    if m:
-        s = m.group(0)
-    if s in {"SET", "^SET", "SETI"}:
-        return "^SETI"
-    # กรณีผู้ใช้พิมพ์ "หุ้น PTT" ให้ดึง PTT
-    parts = re.findall(r"[A-Z0-9]{2,5}(?:\.[A-Z]{1,4})?", s)
-    if parts:
-        cand = parts[-1].upper()
-    else:
-        cand = s
-    if "." not in cand and 2 <= len(cand) <= 5:
-        # คาดว่าเป็นหุ้นไทย
-        return cand + ".BK"
-    return cand
+# ---- Timezone helpers (to Asia/Bangkok) ----
+try:
+    from zoneinfo import ZoneInfo  # Py3.9+
+    _BKK = ZoneInfo("Asia/Bangkok")
+    _UTC = ZoneInfo("UTC")
+    def _to_bkk_str(epoch_sec: Optional[int]) -> str:
+        if not epoch_sec:
+            return "-"
+        dt = _dt.datetime.fromtimestamp(int(epoch_sec), tz=_UTC).astimezone(_BKK)
+        return dt.strftime("%Y-%m-%d %H:%M")
+except Exception:
+    def _to_bkk_str(epoch_sec: Optional[int]) -> str:
+        try:
+            if not epoch_sec:
+                return "-"
+            dt = _dt.datetime.utcfromtimestamp(int(epoch_sec)) + _dt.timedelta(hours=7)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return "-"
 
 # ---------- Stocks (Yahoo Finance) ----------
 def _yahoo_quote(symbols: List[str]) -> Optional[Dict[str, Any]]:
     """
-    เรียก Yahoo Finance quote API แบบรวดเดียว
+    Yahoo Finance quote API (ไม่มี key)
     """
     url = "https://query1.finance.yahoo.com/v7/finance/quote"
     params = {"symbols": ",".join(symbols)}
@@ -167,18 +218,37 @@ def _yahoo_quote(symbols: List[str]) -> Optional[Dict[str, Any]]:
         _log("YQ_JSON_ERR", err=str(e))
         return None
 
+def _ensure_symbol_inferred(raw: str) -> str:
+    """
+    เดาสัญลักษณ์จากข้อความของผู้ใช้:
+    - SET → ^SETI (Yahoo)
+    - ถ้าเป็นตัวอักษร/ตัวเลข 2–5 ตัว และไม่มีจุด → เติม .BK (คาดว่าเป็นหุ้นไทย)
+    """
+    s = (raw or "").strip().upper()
+    # ดึง token ที่ดูเหมือนสัญลักษณ์
+    m = re.search(r"[A-Z0-9.\-^]{1,12}", s)
+    if m:
+        s = m.group(0)
+    if s in {"SET", "^SET", "SETI"}:
+        return "^SETI"
+    parts = re.findall(r"[A-Z0-9]{2,5}(?:\.[A-Z]{1,4})?", s)
+    cand = parts[-1].upper() if parts else s
+    if "." not in cand and 2 <= len(cand) <= 5:
+        return cand + ".BK"
+    return cand
+
 def get_stock_info(query: str) -> str:
     """
-    ดึงราคาหุ้นจาก Yahoo Finance
-    - รองรับ SET → ^SETI, หุ้นไทยเดาส่วนขยาย .BK ถ้าไม่ระบุ
+    ดึงราคาหุ้นจาก Yahoo Finance และสรุปผลเป็น Markdown
     """
     try:
         sym = _ensure_symbol_inferred(query)
         data = _yahoo_quote([sym])
-        if not data or not data.get("quoteResponse", {}).get("result"):
+        results = data.get("quoteResponse", {}).get("result") if data else None
+        if not results:
             return "❌ ไม่พบข้อมูลหุ้นที่ขอครับ"
 
-        q = data["quoteResponse"]["result"][0]
+        q = results[0]
         name = q.get("shortName") or q.get("longName") or q.get("symbol") or sym
         symbol = q.get("symbol") or sym
         price = q.get("regularMarketPrice")
@@ -187,24 +257,28 @@ def get_stock_info(query: str) -> str:
         cur = q.get("currency") or "-"
         exch = q.get("fullExchangeName") or q.get("exchange") or "-"
         state = q.get("marketState") or "-"
-        arrow = _arrow(chg if isinstance(chg, (int, float)) else 0.0)
+        ts = q.get("regularMarketTime") or q.get("postMarketTime") or q.get("preMarketTime")
+        when_bkk = _to_bkk_str(ts)
+        arrow = _arrow(chg if isinstance(chg, (int, float)) else None)
 
         if price is None:
-            return f"❌ ไม่พบราคาสดของ {symbol}"
+            return f"❌ ไม่พบราคาสดของ `{_md(symbol)}`"
 
         msg = (
-            f"📊 *{name}* (`{symbol}`)\n"
-            f"ราคา: *{_fmt_num(price)}* {cur}  {arrow}\n"
+            f"📊 *{_md(name)}* (`{_md(symbol)}`)\n"
+            f"ราคา: *{_fmt_num(price)}* {_md(cur)}  {arrow}\n"
             f"เปลี่ยนแปลง: {_fmt_num(chg)} ({_percent(chg_pct)})\n"
-            f"ตลาด: {exch} | สถานะ: {state}"
+            f"ตลาด: {_md(exch)} | สถานะ: {_md(state)}\n"
+            f"🕒 เวลาข้อมูล (กรุงเทพฯ): `{when_bkk}`"
         )
         return msg
     except Exception as e:
         _log("STOCK_ERR", err=str(e))
-        # Fallback mock (เดิม)
-        if "SET" in query.upper():
+        # Fallback mock (ย้อนรองรับของเดิมเพื่อไม่ให้พัง flow)
+        uq = (query or "").upper()
+        if "SET" in uq:
             return "SET วันนี้: 1,234.56 (+4.56)"
-        elif "PTT" in query.upper():
+        if "PTT" in uq:
             return "PTT: 38.25 บาท (+0.25)"
         return "❌ ยังไม่รองรับหุ้นนี้"
 
@@ -220,7 +294,7 @@ def _yahoo_quote_multi(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
 
 def get_oil_price() -> str:
     """
-    ราคาน้ำมันดิบโลก (WTI / Brent) จาก Yahoo (สัญลักษณ์: CL=F, BZ=F)
+    ราคาน้ำมันดิบโลก (WTI / Brent) จาก Yahoo (CL=F, BZ=F)
     """
     try:
         syms = ["CL=F", "BZ=F"]
@@ -234,18 +308,28 @@ def get_oil_price() -> str:
             ch = d.get("regularMarketChange")
             chp = d.get("regularMarketChangePercent")
             cur = d.get("currency") or "USD"
-            arr = _arrow(ch if isinstance(ch, (int, float)) else 0.0)
+            arr = _arrow(ch if isinstance(ch, (int, float)) else None)
             if px is None:
                 return f"- {label}: ไม่พร้อมใช้งาน"
             return f"- {label}: {_fmt_num(px)} {cur}  {arr}  ({_fmt_num(ch)} / {_percent(chp)})"
 
-        msg = "🛢️ *ราคาน้ำมันดิบโลกวันนี้*\n" + "\n".join([
-            fmt("CL=F", "WTI (CL=F)"),
-            fmt("BZ=F", "Brent (BZ=F)"),
-        ])
+        ts = None
+        for sym in syms:
+            ts = ts or q.get(sym, {}).get("regularMarketTime")
+        when_bkk = _to_bkk_str(ts)
+
+        msg = (
+            "🛢️ *ราคาน้ำมันดิบโลกวันนี้*\n" +
+            "\n".join([
+                fmt("CL=F", "WTI (CL=F)"),
+                fmt("BZ=F", "Brent (BZ=F)"),
+            ]) +
+            f"\n🕒 เวลาข้อมูล (กรุงเทพฯ): `{when_bkk}`"
+        )
         return msg
     except Exception as e:
         _log("OIL_ERR", err=str(e))
+        # Fallback mock ของเดิม
         return (
             "ราคาน้ำมันวันนี้:\n"
             "- ดีเซล: 30.94\n"
@@ -277,9 +361,7 @@ def _lottoth_latest_or_date(date: Optional[str] = None) -> Optional[Dict[str, An
 
 def get_lottery_result(date: str = None) -> str:
     """
-    ดึงผลสลากกินแบ่งรัฐบาลจริง (API: lottoth-api)
-    - ถ้าไม่ระบุ date จะดึงงวดล่าสุด
-    - ระบุ date รูปแบบ 'YYYY-MM-DD'
+    ดึงผลสลากกินแบ่งรัฐบาล (ล่าสุด หรือระบุ 'YYYY-MM-DD')
     """
     try:
         data = _lottoth_latest_or_date(date)
@@ -294,11 +376,11 @@ def get_lottery_result(date: str = None) -> str:
         back2 = d.get("back2", "-")
 
         msg = (
-            f"📅 *ผลสลากกินแบ่งรัฐบาล* งวดวันที่ {dt}\n"
-            f"🏆 รางวัลที่ 1: *{reward1}*\n"
-            f"🔢 เลขหน้า 3 ตัว: {front3 or '-'}\n"
-            f"🔢 เลขท้าย 3 ตัว: {back3 or '-'}\n"
-            f"🎯 เลขท้าย 2 ตัว: *{back2}*\n"
+            f"📅 *ผลสลากกินแบ่งรัฐบาล* งวดวันที่ {_md(dt)}\n"
+            f"🏆 รางวัลที่ 1: *{_md(reward1)}*\n"
+            f"🔢 เลขหน้า 3 ตัว: {_md(front3 or '-')}\n"
+            f"🔢 เลขท้าย 3 ตัว: {_md(back3 or '-')}\n"
+            f"🎯 เลขท้าย 2 ตัว: *{_md(back2)}*\n"
             f"_ข้อมูล: lottoth-api_"
         )
         return msg
@@ -307,8 +389,8 @@ def get_lottery_result(date: str = None) -> str:
         return "❌ เกิดข้อผิดพลาดในการดึงผลสลาก"
 
 # ---------- Crypto (CoinGecko) ----------
-# แมปสัญลักษณ์ที่พบบ่อย → coin id ของ CoinGecko
 _CG_COMMON: Dict[str, str] = {
+    # Top caps + ยอดนิยม
     "BTC": "bitcoin", "XBT": "bitcoin",
     "ETH": "ethereum",
     "BNB": "binancecoin",
@@ -323,6 +405,14 @@ _CG_COMMON: Dict[str, str] = {
     "MATIC": "matic-network",
     "DOT": "polkadot",
     "LTC": "litecoin",
+    "AVAX": "avalanche-2",
+    "NEAR": "near",
+    "OP": "optimism",
+    "ARB": "arbitrum",
+    "APT": "aptos",
+    "SUI": "sui",
+    "SHIB": "shiba-inu",
+    "PEPE": "pepe",
 }
 
 def _coingecko_simple_price(ids: List[str], vs: List[str]) -> Optional[Dict[str, Any]]:
@@ -349,19 +439,17 @@ def _coingecko_simple_price(ids: List[str], vs: List[str]) -> Optional[Dict[str,
 
 def _resolve_coin_id(symbol_or_name: str) -> Optional[str]:
     s = (symbol_or_name or "").strip().upper()
-    # match common
     if s in _CG_COMMON:
         return _CG_COMMON[s]
-    # heuristic: ถ้าผู้ใช้พิมพ์ชื่อเต็มของ id
+    # heuristic: ถ้าผู้ใช้พิมพ์ id เต็มอยู่แล้ว (เช่น the-open-network)
     s_id = (symbol_or_name or "").strip().lower()
     if re.fullmatch(r"[a-z0-9\-]{3,50}", s_id):
         return s_id
-    return None  # เพื่อความเสถียร เราไม่ยิง /search เพิ่ม (ลด rate limit)
+    return None
 
 def get_crypto_price(coin: str) -> str:
     """
-    ดึงราคาคริปโตผ่าน CoinGecko (THB/USDT) + เปอร์เซ็นต์ 24 ชม.
-    รองรับสัญลักษณ์ยอดนิยม (BTC/ETH/BNB/…)
+    ดึงราคาคริปโต (THB / USD) + %เปลี่ยนแปลง 24ชม. (CoinGecko)
     """
     try:
         cid = _resolve_coin_id(coin)
@@ -373,6 +461,7 @@ def get_crypto_price(coin: str) -> str:
                 cid = "ethereum"
             else:
                 return f"❌ ยังไม่รองรับเหรียญ {c}"
+
         data = _coingecko_simple_price([cid], ["thb", "usd"])
         if not data or cid not in data:
             return f"❌ ไม่พบข้อมูลราคาของ {coin.upper()}"
@@ -380,11 +469,11 @@ def get_crypto_price(coin: str) -> str:
         row = data[cid]
         thb = row.get("thb"); usd = row.get("usd")
         chg_thb = row.get("thb_24h_change"); chg_usd = row.get("usd_24h_change")
-        arr = _arrow(chg_thb if isinstance(chg_thb, (int, float)) else (chg_usd or 0.0))
+        arr = _arrow(chg_thb if isinstance(chg_thb, (int, float)) else (chg_usd if isinstance(chg_usd, (int, float)) else None))
         name = cid.replace("-", " ").title()
 
         msg = (
-            f"💎 *{name}*\n"
+            f"💎 *{_md(name)}*\n"
             f"THB: *{_fmt_num(float(thb)) if thb is not None else '-'}*  {arr}\n"
             f"USD: {_fmt_num(float(usd)) if usd is not None else '-'}\n"
             f"เปลี่ยน 24 ชม.: "
@@ -393,10 +482,18 @@ def get_crypto_price(coin: str) -> str:
         return msg
     except Exception as e:
         _log("CRYPTO_ERR", err=str(e))
-        # Fallback mock (เดิม)
+        # Fallback mock (เพื่อความต่อเนื่อง)
         c = (coin or "").lower()
         if c in ["btc", "bitcoin"]:
             return "Bitcoin (BTC): 2,350,000 บาท"
         elif c in ["eth", "ethereum"]:
             return "Ethereum (ETH): 130,000 บาท"
         return f"❌ ยังไม่รองรับเหรียญ {coin.upper()}"
+
+# ---------- (Optional) CLI test ----------
+if __name__ == "__main__":
+    print(get_stock_info("PTT"))
+    print(get_stock_info("SET"))
+    print(get_oil_price())
+    print(get_lottery_result())
+    print(get_crypto_price("BTC"))
