@@ -4,13 +4,13 @@
 Thin wrapper ที่เข้ากับโค้ดเดิม แต่ใต้ท้องใช้ utils.telegram_api
 
 สิ่งที่ทำ:
-- รองรับทั้ง TELEGRAM_BOT_TOKEN และ TELEGRAM_TOKEN
+- รองรับทั้ง TELEGRAM_BOT_TOKEN และ TELEGRAM_TOKEN (ยึด config.py เป็นหลัก)
 - ฟังก์ชัน get_telegram_token() แบบ public เพื่อความเข้ากันได้กับโค้ดเดิม
 - รองรับ parse_mode ("HTML" / "Markdown" / "MarkdownV2") อย่างถูกต้อง
 - ✅ บล็อคข้อความแนว "รับทราบ:/คุณถามว่า:/สรุปคำถาม:" ก่อนส่ง (กันบอททวนคำถาม)
 - ✅ ไม่ตัดข้อความทิ้ง: จะแบ่งข้อความเป็นก้อนละ ≤4096 ตัวอักษรอัตโนมัติ
-- ✅ ส่งสถานะกำลังพิมพ์ (send_typing_action)
-- ✅ มี retry เบา ๆ 1 ครั้งกรณีล้มเหลวชั่วคราว
+- ✅ ส่งสถานะกำลังพิมพ์ (send_typing_action) + ออปชัน auto_typing
+- ✅ retry ฉลาดขึ้น (จับ retry_after จาก Telegram + backoff + jitter)
 """
 
 from __future__ import annotations
@@ -21,30 +21,36 @@ import re
 import time
 import random
 
-# ฟังก์ชันระดับล่างจาก telegram_api (มี log ดีบักให้แล้ว)
-from utils.telegram_api import (
-    send_message as tg_send_message,
-    send_photo as tg_send_photo,
-)
-from utils.telegram_api import _api_post  # ใช้เมื่อจำเป็นต้องระบุพารามิเตอร์เอง
+# ===== Read token from config first (standard) =====
+try:
+    from config import TELEGRAM_BOT_TOKEN as _CFG_BOT_TOKEN  # type: ignore
+except Exception:
+    _CFG_BOT_TOKEN = ""
 
-ALLOWED_PARSE = {"HTML", "Markdown", "MarkdownV2"}
+# ===== Low-level Telegram API helpers (have debug logs inside) =====
+from utils.telegram_api import (
+    _api_post,                   # ใช้เป็นหลักเพื่อควบคุม retry
+    send_message as tg_send_message,  # คง import ไว้เพื่อเข้ากันได้ (ไม่ได้เรียกโดยตรง)
+    send_photo   as tg_send_photo,    # คง import ไว้เพื่อเข้ากันได้ (ไม่ได้เรียกโดยตรง)
+)
+
+ALLOWED_PARSE = {"HTML", "MARKDOWN", "MARKDOWNV2"}  # จะ upper() ก่อนเช็ค
 TELEGRAM_MESSAGE_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
 
 # ===== Token helpers =====
 def get_telegram_token() -> str:
     """
-    คืนค่า Telegram Bot Token จาก ENV (รองรับ TELEGRAM_BOT_TOKEN/TELEGRAM_TOKEN)
-    - มีไว้ให้โมดูลอื่น import ได้ (ความเข้ากันได้กับโค้ดเก่า)
+    คืนค่า Telegram Bot Token (ยึด config เป็นหลัก แล้วค่อย fallback ไป ENV เก่า)
+    - มีไว้ให้โมดูลอื่น import ได้ (ความเข้ากันได้กับโค้ดเดิม)
     """
     tok = (
-        os.getenv("TELEGRAM_BOT_TOKEN")
-        or os.getenv("TELEGRAM_TOKEN")
-        or ""
-    ).strip()
+        (_CFG_BOT_TOKEN or "").strip()
+        or (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+        or (os.getenv("TELEGRAM_TOKEN") or "").strip()
+    )
     if not tok:
-        print("[message_utils] WARNING: Telegram token not set in TELEGRAM_BOT_TOKEN/TELEGRAM_TOKEN")
+        print("[message_utils] WARNING: Telegram token not set (config/ENV)")
     return tok
 
 def _log(tag: str, **kw):
@@ -53,7 +59,7 @@ def _log(tag: str, **kw):
     except Exception:
         print(f"[message_utils] {tag} :: (unprintable log)")
 
-def _safe_preview(s: str, n: int = 120) -> str:
+def _safe_preview(s: str, n: int = 160) -> str:
     s = s or ""
     return (s[:n] + "…") if len(s) > n else s
 
@@ -87,6 +93,11 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
     """
     แบ่งข้อความเป็นหลายชิ้นให้ไม่เกิน limit (4096) โดยพยายามตัดตามบรรทัด/ช่องว่าง
     """
+    if text is None:
+        return [""]
+    if not isinstance(text, str):
+        text = str(text)
+
     if not text:
         return [""]
 
@@ -129,7 +140,6 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
         if len(p) <= limit:
             normalized.append(p)
             continue
-        # split by words
         words = p.split(" ")
         cur, l = [], 0
         for w in words:
@@ -144,36 +154,104 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
 
     return normalized or [""]
 
-# ===== Retry helper =====
-def _with_retry(func, *args, **kwargs):
+# ===== Retry helpers (ฉลาด: จับ retry_after + backoff) =====
+def _extract_retry_after(err: Any) -> Optional[int]:
     """
-    retry เบา ๆ 1 ครั้ง (หน่วงสุ่มเล็กน้อย) กรณี error ชั่วคราว
+    พยายามดึงค่า retry_after จาก error (ทั้งแบบ dict ของ Telegram และจากข้อความ)
+    โครงสร้างมาตรฐานของ Telegram กรณี rate limit:
+    {"ok": false, "error_code": 429, "description": "...", "parameters": {"retry_after": N}}
     """
+    # แบบ dict
     try:
-        return func(*args, **kwargs)
-    except Exception as e1:
-        _log("WARN_RETRY_ONCE", err=str(e1))
-        time.sleep(0.3 + random.random() * 0.5)
+        if isinstance(err, dict):
+            params = err.get("parameters") or {}
+            if isinstance(params, dict) and "retry_after" in params:
+                return int(params["retry_after"])
+            # บางไลบรารีคืน description แบบข้อความ "Too Many Requests: retry after X"
+            desc = err.get("description") or ""
+            m = re.search(r"retry after (\d+)", str(desc), flags=re.IGNORECASE)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+
+    # แบบ Exception / ข้อความ
+    try:
+        s = str(err)
+        m = re.search(r"retry after (\d+)", s, flags=re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+    except Exception:
+        pass
+    return None
+
+def _send_with_retry(method: str, payload: Dict[str, Any], max_attempts: int = 3) -> Optional[Dict[str, Any]]:
+    """
+    เรียก Telegram API (ผ่าน _api_post) พร้อม retry ฉลาด:
+    - ถ้าเจอ 429 และเจอ retry_after จะรออัตโนมัติ (เพิ่ม jitter)
+    - อื่น ๆ จะ backoff เล็กน้อย 0.4s, 0.8s, ...
+    """
+    attempt = 0
+    while attempt < max_attempts:
+        attempt += 1
         try:
-            return func(*args, **kwargs)
-        except Exception as e2:
-            _log("ERROR_AFTER_RETRY", err=str(e2))
+            resp = _api_post(method, payload)
+            # บางกรณี _api_post อาจคืน dict ที่มี ok=false ให้เราจัดการเอง
+            if isinstance(resp, dict) and resp.get("ok") is False:
+                ra = _extract_retry_after(resp)
+                if ra:
+                    wait_s = ra + random.uniform(0.05, 0.35)
+                    _log("RATE_LIMIT", method=method, retry_after=ra, wait=round(wait_s, 3), attempt=attempt)
+                    time.sleep(wait_s)
+                    continue
+                # ไม่ใช่ rate limit → ถือเป็น error ทั่วไป
+                _log("TELEGRAM_ERROR", method=method, resp=_safe_preview(json.dumps(resp, ensure_ascii=False), 300))
+                if attempt < max_attempts:
+                    time.sleep(0.3 * attempt)
+                    continue
+                return None
+            return resp
+        except Exception as e:
+            ra = _extract_retry_after(e)
+            if ra:
+                wait_s = ra + random.uniform(0.05, 0.35)
+                _log("RATE_LIMIT_EX", method=method, retry_after=ra, wait=round(wait_s, 3), attempt=attempt)
+                time.sleep(wait_s)
+                continue
+            _log("WARN_RETRY", method=method, attempt=attempt, err=str(e))
+            if attempt < max_attempts:
+                time.sleep(0.4 * attempt)
+                continue
+            _log("ERROR_AFTER_RETRY", method=method, err=str(e))
             return None
+    return None
 
 # ===== High-level senders =====
 def send_typing_action(chat_id: int | str, action: str = "typing") -> None:
     """
     ส่งสถานะกำลังพิมพ์/อัปโหลด ฯลฯ
-    action: typing|upload_photo|record_video|upload_video|record_voice|upload_voice|upload_document|choose_sticker|find_location|record_video_note|upload_video_note
+    action: typing|upload_photo|record_video|upload_video|record_voice|upload_voice|
+            upload_document|choose_sticker|find_location|record_video_note|upload_video_note
     """
     token = get_telegram_token()
     if not token:
         _log("WARN_NO_TOKEN", chat_id=chat_id, action="send_typing_action")
         return
     try:
-        _with_retry(_api_post, "sendChatAction", {"chat_id": chat_id, "action": action})
+        _send_with_retry("sendChatAction", {"chat_id": chat_id, "action": action}, max_attempts=3)
     except Exception as e:
         _log("ERROR_CHAT_ACTION", err=str(e))
+
+def _normalize_parse_mode(parse_mode: Optional[str]) -> str:
+    """
+    คืนค่า parse_mode ที่ปลอดภัย (HTML เป็นค่าเริ่มต้น)
+    """
+    pm = (parse_mode or "HTML").strip()
+    pm_up = pm.upper()
+    if pm_up not in ALLOWED_PARSE:
+        return "HTML"
+    # คืนรูปแบบต้นทาง (เคสถูกต้อง) ให้สวยงาม
+    return "MarkdownV2" if pm_up == "MARKDOWNV2" else ("Markdown" if pm_up == "MARKDOWN" else "HTML")
 
 def send_message(
     chat_id: int | str,
@@ -182,22 +260,21 @@ def send_message(
     disable_preview: bool = True,
     reply_markup: Optional[Dict[str, Any]] = None,
     reply_to_message_id: Optional[int] = None,
+    auto_typing: bool = True,
 ) -> None:
     """
     ส่งข้อความไป Telegram
     - แบ่งข้อความยาวเป็นก้อนละ ≤4096 ตัวอักษร (ไม่ตัดทิ้ง)
-    - ถ้า parse_mode != "HTML" จะใช้ _api_post เพื่อระบุ parse_mode ตรง ๆ
     - ✅ บล็อคข้อความแนวทวน/ยืนยันก่อนส่ง (เฉพาะชิ้นแรกเท่านั้น)
+    - รองรับ parse_mode (HTML/Markdown/MarkdownV2)
+    - ส่งสถานะกำลังพิมพ์อัตโนมัติเมื่อ auto_typing=True
     """
     token = get_telegram_token()
     if not token:
         _log("WARN_NO_TOKEN", chat_id=chat_id, text_preview=_safe_preview(text))
         return
 
-    pm = (parse_mode or "HTML")
-    if pm not in ALLOWED_PARSE:
-        pm = "HTML"
-
+    pm = _normalize_parse_mode(parse_mode)
     chunks = _split_for_telegram(text or "")
     if not chunks:
         chunks = [""]
@@ -209,35 +286,24 @@ def send_message(
 
     try:
         for idx, chunk in enumerate(chunks):
-            if pm != "HTML":
-                payload = {
-                    "chat_id": chat_id,
-                    "text": chunk,
-                    "parse_mode": pm,
-                    "disable_web_page_preview": disable_preview,
-                }
-                if reply_markup and idx == 0:
+            if auto_typing:
+                # ส่ง typing action ก่อนยิงข้อความแต่ละชิ้น
+                send_typing_action(chat_id, action="typing")
+
+            payload = {
+                "chat_id": chat_id,
+                "text": chunk,
+                "parse_mode": pm,
+                "disable_web_page_preview": disable_preview,
+            }
+            # ใส่ reply_markup / reply_to_message_id เฉพาะชิ้นแรกพอ
+            if idx == 0:
+                if reply_markup:
                     payload["reply_markup"] = reply_markup
-                if reply_to_message_id and idx == 0:
+                if reply_to_message_id is not None:
                     payload["reply_to_message_id"] = reply_to_message_id
-                _with_retry(_api_post, "sendMessage", payload)
-            else:
-                # ใช้ helper ปกติ (default = HTML ใน telegram_api)
-                # ใส่ reply_markup / reply_to_message_id เฉพาะชิ้นแรกพอ
-                if idx == 0 and (reply_markup or reply_to_message_id is not None):
-                    payload = {
-                        "chat_id": chat_id,
-                        "text": chunk,
-                        "parse_mode": "HTML",
-                        "disable_web_page_preview": disable_preview,
-                    }
-                    if reply_markup:
-                        payload["reply_markup"] = reply_markup
-                    if reply_to_message_id is not None:
-                        payload["reply_to_message_id"] = reply_to_message_id
-                    _with_retry(_api_post, "sendMessage", payload)
-                else:
-                    _with_retry(tg_send_message, chat_id, chunk, reply_markup=None)
+
+            _send_with_retry("sendMessage", payload, max_attempts=3)
     except Exception as e:
         _log("ERROR_SEND_MESSAGE", err=str(e))
 
@@ -248,11 +314,13 @@ def send_photo(
     parse_mode: Optional[str] = None,
     reply_markup: Optional[Dict[str, Any]] = None,
     reply_to_message_id: Optional[int] = None,
+    auto_typing: bool = True,
 ) -> None:
     """
     ส่งรูปภาพไป Telegram
     - จำกัด caption ~1024 ตัวอักษรตามข้อกำหนด Telegram
-    - รองรับ parse_mode ถ้าต้องการ (MarkdownV2/Markdown/HTML)
+    - รองรับ parse_mode (MarkdownV2/Markdown/HTML)
+    - auto_typing จะส่ง action=upload_photo ก่อน
     """
     token = get_telegram_token()
     if not token:
@@ -260,25 +328,24 @@ def send_photo(
         return
 
     cap = (caption or "")[:TELEGRAM_CAPTION_LIMIT]
-    pm = (parse_mode or "HTML")
-    if pm not in ALLOWED_PARSE:
-        pm = "HTML"
+    pm = _normalize_parse_mode(parse_mode)
 
     try:
-        if pm == "HTML" and not reply_markup and reply_to_message_id is None:
-            _with_retry(tg_send_photo, chat_id, photo_url, caption=cap)
-        else:
-            payload = {
-                "chat_id": chat_id,
-                "photo": photo_url,
-                "caption": cap,
-                "parse_mode": pm,
-            }
-            if reply_markup:
-                payload["reply_markup"] = reply_markup
-            if reply_to_message_id is not None:
-                payload["reply_to_message_id"] = reply_to_message_id
-            _with_retry(_api_post, "sendPhoto", payload)
+        if auto_typing:
+            send_typing_action(chat_id, action="upload_photo")
+
+        payload = {
+            "chat_id": chat_id,
+            "photo": photo_url,
+            "caption": cap,
+            "parse_mode": pm,
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = reply_to_message_id
+
+        _send_with_retry("sendPhoto", payload, max_attempts=3)
     except Exception as e:
         _log("ERROR_SEND_PHOTO", err=str(e))
 
@@ -289,9 +356,12 @@ def send_document(
     parse_mode: Optional[str] = None,
     reply_markup: Optional[Dict[str, Any]] = None,
     reply_to_message_id: Optional[int] = None,
+    auto_typing: bool = True,
 ) -> None:
     """
-    ส่งเอกสาร/ไฟล์ (โดยให้เป็น URL) — เผื่อใช้งาน
+    ส่งเอกสาร/ไฟล์ (โดยให้เป็น URL)
+    - รองรับ parse_mode
+    - auto_typing จะส่ง action=upload_document ก่อน
     """
     token = get_telegram_token()
     if not token:
@@ -299,11 +369,12 @@ def send_document(
         return
 
     cap = (caption or "")[:TELEGRAM_CAPTION_LIMIT]
-    pm = (parse_mode or "HTML")
-    if pm not in ALLOWED_PARSE:
-        pm = "HTML"
+    pm = _normalize_parse_mode(parse_mode)
 
     try:
+        if auto_typing:
+            send_typing_action(chat_id, action="upload_document")
+
         payload = {
             "chat_id": chat_id,
             "document": file_url,
@@ -314,7 +385,8 @@ def send_document(
             payload["reply_markup"] = reply_markup
         if reply_to_message_id is not None:
             payload["reply_to_message_id"] = reply_to_message_id
-        _with_retry(_api_post, "sendDocument", payload)
+
+        _send_with_retry("sendDocument", payload, max_attempts=3)
     except Exception as e:
         _log("ERROR_SEND_DOCUMENT", err=str(e))
 
@@ -336,11 +408,11 @@ def ask_for_location(
         "one_time_keyboard": True,
     }
     try:
-        _with_retry(_api_post, "sendMessage", {
+        _send_with_retry("sendMessage", {
             "chat_id": chat_id,
             "text": text,
             "reply_markup": keyboard,
             "parse_mode": "HTML",
-        })
+        }, max_attempts=3)
     except Exception as e:
         _log("ERROR_ASK_LOCATION", err=str(e))
