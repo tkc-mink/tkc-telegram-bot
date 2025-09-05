@@ -5,10 +5,12 @@ Admin utilities (final, robust)
 - รองรับหลาย Super Admin จาก ENV: SUPER_ADMIN_IDS="604990227,123456789"
 - แจ้งเตือนอนุมัติผู้ใช้ใหม่ถึงทุก Super Admin
 - ฟังก์ชันอนุมัติ/ระงับ/ลิสต์ผู้ใช้ ให้เรียกจาก handlers.admin ได้ทันที
+- ป้องกัน Markdown พังด้วยการ escape ข้อความ dynamic ทุกจุด
+- กันข้อความลิสต์รายชื่อยาวเกินด้วยการตัดที่ปลอดภัย
 """
 
 from __future__ import annotations
-from typing import Dict, Any, Iterable, Optional
+from typing import Dict, Any, Optional
 import os
 
 from utils.memory_store import (
@@ -53,6 +55,29 @@ def is_super_admin(user_id: int) -> bool:
     return int(user_id) in SUPER_ADMIN_IDS
 
 
+# ---------- Markdown helpers ----------
+
+# Telegram Markdown (V1) safe-escape สำหรับค่าที่ผู้ใช้กรอก/มาจาก DB
+# อ้างอิงสัญลักษณ์ที่ต้องหนีใน Markdown V1
+_MD_CHARS = r"_*[]()~`>#+-=|{}.!"
+
+def _md_escape(s: Any) -> str:
+    """
+    Escape อักขระ Markdown ที่อาจทำให้รูปแบบเพี้ยน
+    ใช้กับข้อมูล dynamic ทุกจุดที่จะส่งเป็น parse_mode='Markdown'
+    """
+    text = str(s or "")
+    if not text:
+        return ""
+    out = []
+    for ch in text:
+        if ch in _MD_CHARS:
+            out.append("\\" + ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 # ---------- Helpers ----------
 
 def _broadcast_to_admins(text: str, parse_mode: Optional[str] = "Markdown") -> None:
@@ -68,10 +93,15 @@ def _broadcast_to_admins(text: str, parse_mode: Optional[str] = "Markdown") -> N
 
 def _find_user_id_by_username(username: str) -> Optional[int]:
     """ค้นหา user_id จาก @username (ไม่ต้องใส่ @ ก็ได้)"""
-    uname = username.lstrip("@").lower()
+    uname = (username or "").lstrip("@").lower()
+    if not uname:
+        return None
     for u in get_all_users():
         if (u.get("username") or "").lower() == uname:
-            return int(u["user_id"])
+            try:
+                return int(u["user_id"])
+            except Exception:
+                return None
     return None
 
 
@@ -102,18 +132,19 @@ def notify_super_admin_for_approval(new_user_data: Dict[str, Any]) -> None:
         return
 
     user_id = new_user_data.get("id")
-    first_name = new_user_data.get("first_name", "")
-    username = new_user_data.get("username", "N/A")
+    first_name = _md_escape(new_user_data.get("first_name", "") or "-")
+    username_raw = (new_user_data.get("username") or "").strip()
+    username_show = f"@{_md_escape(username_raw)}" if username_raw else "-"
 
-    # ใช้ backticks เพื่อกัน Markdown เพี้ยนกรณีมี underscore
+    # ใช้ backticks + escape กัน Markdown เพี้ยน
     msg = (
-        "🔔 **มีผู้ใช้ใหม่รอการอนุมัติ** 🔔\n\n"
-        f"**ชื่อ:** {first_name}\n"
-        f"**Username:** `@{username}`\n"
-        f"**User ID:** `{user_id}`\n\n"
+        "🔔 *มีผู้ใช้ใหม่รอการอนุมัติ* 🔔\n\n"
+        f"*ชื่อ:* {first_name}\n"
+        f"*Username:* `{username_show}`\n"
+        f"*User ID:* `{_md_escape(user_id)}`\n\n"
         "ใช้คำสั่ง:\n"
-        f"• `/admin approve {user_id}` เพื่ออนุมัติ\n"
-        f"• `/admin remove {user_id}` เพื่อระงับ\n"
+        f"• `/admin approve {_md_escape(user_id)}` เพื่ออนุมัติ\n"
+        f"• `/admin remove {_md_escape(user_id)}` เพื่อระงับ\n"
         "หรือจะระบุเป็น `@username` ก็ได้ครับ"
     )
     _broadcast_to_admins(msg, parse_mode="Markdown")
@@ -164,17 +195,29 @@ def remove_user_by_identifier(identifier: str) -> str:
 
 
 def list_all_users() -> str:
-    """สรุปรายชื่อผู้ใช้ทั้งหมด"""
+    """สรุปรายชื่อผู้ใช้ทั้งหมด (ตัดความยาวเพื่อเลี่ยงข้อความยาวเกิน Telegram)"""
     users = get_all_users()
     if not users:
         return "ยังไม่มีผู้ใช้ในระบบเลยครับ"
 
     icon = {"approved": "✅", "pending": "⏳", "removed": "❌"}
-    lines = ["**รายชื่อผู้ใช้ทั้งหมดในระบบ:**"]
+
+    # จำกัดจำนวนบรรทัดเพื่อเลี่ยง 4096-char limit ของ Telegram (กันเหนียว)
+    MAX_LINES = 400  # เผื่อบรรทัดสั้น/ยาวปนกัน
+    lines = ["*รายชื่อผู้ใช้ทั้งหมดในระบบ:*"]
+    count = 0
     for u in users:
-        status = u.get("status") or ""
+        status = (u.get("status") or "").strip()
+        uid = _md_escape(u.get("user_id"))
+        first = _md_escape(u.get("first_name", "") or "")
+        uname = _md_escape(u.get("username", "") or "")
+        role = _md_escape(u.get("role", "") or "")
         lines.append(
-            f"{icon.get(status, '❓')} `{u['user_id']}` - {u.get('first_name','')}"
-            f" (@{u.get('username','')}) [{u.get('role','')}]"
+            f"{icon.get(status, '❓')} `{uid}` - {first} (@{uname}) [{role}]"
         )
+        count += 1
+        if count >= MAX_LINES:
+            lines.append(f"_...ตัดแสดงที่ {MAX_LINES} รายการ_")
+            break
+
     return "\n".join(lines)
