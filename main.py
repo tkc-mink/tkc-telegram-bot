@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import io
 import json
 import gzip
+import hmac
 import uuid
+import threading
 import traceback
 from datetime import datetime
 from typing import Any, Dict, Tuple
@@ -44,11 +47,17 @@ except Exception:
     SUPPORTED_FORMATS = []
 
 app = Flask(__name__)
+# ตัด payload ตั้งแต่ชั้น WSGI (compressed length)
+app.config['MAX_CONTENT_LENGTH'] = MAX_PAYLOAD_BYTES
 
 # ---- Proxy / Trust headers ----
 if TRUST_PROXY_HEADERS:
-    # ให้ Flask รู้จัก X-Forwarded-* จาก Render/Reverse proxy
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    # อ่านจำนวน proxy ชั้นนอกจาก ENV (ดีฟอลต์ 1)
+    x_for    = int(os.getenv("PROXY_COUNT_X_FOR", "1") or 1)
+    x_proto  = int(os.getenv("PROXY_COUNT_X_PROTO", "1") or 1)
+    x_host   = int(os.getenv("PROXY_COUNT_X_HOST", "1") or 1)
+    x_prefix = int(os.getenv("PROXY_COUNT_X_PREFIX", "1") or 1)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=x_for, x_proto=x_proto, x_host=x_host, x_prefix=x_prefix)
 
 # ---- Logging ----
 def _jsonlog(level: str, msg: str, **kw: Any) -> None:
@@ -69,43 +78,60 @@ def _mask(i: Any) -> str:
     s = str(i)
     return s[:2] + "…" + s[-2:] if len(s) > 4 else "****"
 
+# ---- Early guards (ก่อนอ่าน body แพง ๆ) ----
+@app.before_request
+def _early_guards():
+    # enforce POST ที่ /webhook
+    if request.path == "/webhook" and request.method != "POST":
+        return jsonify({"error": "method not allowed"}), 405
+
 def _read_update_json() -> Tuple[Dict[str, Any], int]:
     """
     อ่าน body อย่างปลอดภัย:
-    - ตรวจ secret token
-    - ลิมิตขนาด
-    - รองรับ gzip (Content-Encoding: gzip)
+    - ตรวจ secret token (constant-time)
+    - ลิมิตขนาด (compressed/decompressed)
+    - รองรับ gzip (stream)
     - คืน (data, raw_len)
     """
     # 0) Trace id ต่อ request (ช่วยตาม log ง่าย)
     req_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
     request.environ["TKC_REQ_ID"] = req_id
 
-    # 1) Secret token
+    # 1) Secret token (constant-time compare)
     if TELEGRAM_SECRET_TOKEN:
         got = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if got != TELEGRAM_SECRET_TOKEN:
+        if not hmac.compare_digest(got, TELEGRAM_SECRET_TOKEN):
             log_warn("Secret token mismatch on /webhook", req_id=req_id, got=_mask(got))
             abort(401)
 
-    # 2) Read raw safely
+    # 2) Read raw safely (compressed size already capped by MAX_CONTENT_LENGTH)
     raw = request.get_data(cache=False, as_text=False) or b""
     if len(raw) > MAX_PAYLOAD_BYTES:
         log_warn("Payload too large (compressed)", req_id=req_id, size=len(raw))
         abort(413)
 
-    # 3) Decompress if needed
+    # 3) Decompress if needed (stream) + cap decompressed bytes
     enc = (request.headers.get("Content-Encoding") or "").lower()
     if enc == "gzip":
         try:
-            decompressed = gzip.decompress(raw)
+            buf = io.BytesIO(raw)
+            gz = gzip.GzipFile(fileobj=buf, mode="rb")
+            chunks = []
+            total = 0
+            CHUNK = 64 * 1024
+            while True:
+                piece = gz.read(CHUNK)
+                if not piece:
+                    break
+                total += len(piece)
+                if total > MAX_DECOMPRESSED_BYTES:
+                    log_warn("Payload too large (decompressed)", req_id=req_id, size=total)
+                    abort(413)
+                chunks.append(piece)
+            text = b"".join(chunks).decode("utf-8", errors="replace")
         except Exception as e:
             log_warn("Gzip decompress failed", req_id=req_id, err=str(e))
             abort(400)
-        if len(decompressed) > MAX_DECOMPRESSED_BYTES:
-            log_warn("Payload too large (decompressed)", req_id=req_id, size=len(decompressed))
-            abort(413)
-        text = decompressed.decode("utf-8", errors="replace")
     else:
         text = raw.decode("utf-8", errors="replace")
 
@@ -128,10 +154,15 @@ def _safe_init():
 
         # กรณีรันหลายอินสแตนซ์ ให้เปิด/ปิด scheduler ด้วย ENV
         if ENABLE_BACKUP_SCHEDULER:
-            log_info("INIT: Attempting restore all data from Drive…")
-            restore_all()
-            setup_backup_scheduler()
-            log_info("INIT: Auto restore + backup scheduler started")
+            def _bg():
+                try:
+                    log_info("INIT: Attempting restore all data from Drive…")
+                    restore_all()
+                    setup_backup_scheduler()
+                    log_info("INIT: Auto restore + backup scheduler started")
+                except Exception as e:
+                    log_err("INIT RESTORE/SCHED ERROR", err=str(e), tb=traceback.format_exc())
+            threading.Thread(target=_bg, name="restore+backup", daemon=True).start()
         else:
             log_info("INIT: Backup scheduler disabled by ENV")
     except Exception as e:
@@ -210,9 +241,9 @@ def readyz():
     except Exception as e:
         checks["db"] = f"error: {e}"
 
-    # ถ้า DB ไม่โอเค → 503; อย่างอื่นค่อยไปดูที่ /diag
-    code = 200 if checks["db"] == "ok" else 503
-    return jsonify(checks), code
+    # พร้อมจริงต้อง DB ok และไม่มี missing_required
+    ready = (checks["db"] == "ok") and not checks["missing_required"]
+    return jsonify(checks), (200 if ready else 503)
 
 @app.get("/diag")
 def diag():
@@ -264,8 +295,17 @@ def webhook():
     # Log แบบปลอดภัย: โชว์แค่ update_id / chat_id mask
     try:
         upd_id = data.get("update_id")
-        msg = data.get("message") or data.get("edited_message") or {}
-        chat_id = (msg.get("chat") or {}).get("id")
+        chat_id = None
+        if "message" in data:
+            chat_id = (data["message"].get("chat") or {}).get("id")
+        elif "edited_message" in data:
+            chat_id = (data["edited_message"].get("chat") or {}).get("id")
+        elif "channel_post" in data:
+            chat_id = (data["channel_post"].get("chat") or {}).get("id")
+        elif "callback_query" in data:
+            cq = data["callback_query"]
+            if cq.get("message") and cq["message"].get("chat"):
+                chat_id = cq["message"]["chat"].get("id")
         log_info("Update meta", req_id=req_id, update_id=upd_id, chat=_mask(chat_id))
     except Exception:
         pass
