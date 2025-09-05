@@ -2,43 +2,83 @@ services:
   - type: web
     name: tkc-telegram-bot
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT main:app
+    plan: free               # หรือ standard / pro ตามการใช้งาน
+    buildCommand: |
+      python -m pip install -U pip setuptools wheel
+      pip install -r requirements.txt
+    startCommand: >
+      gunicorn main:app
+      -b 0.0.0.0:$PORT
+      -w ${WEB_CONCURRENCY:-1}
+      --threads ${WEB_THREADS:-8}
+      --timeout ${WEB_TIMEOUT_SEC:-60}
+      --graceful-timeout 30
+      --keep-alive 5
 
-    # ให้ Render เช็กสุขภาพที่ /healthz (มีใน main.py แล้ว)
     healthCheckPath: /healthz
     autoDeploy: true
 
+    # ⬇️ ผูก Persistent Disk กับโฟลเดอร์ data/ (ที่โค้ดคุณใช้อยู่)
+    disk:
+      name: bot-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1   # ปรับตามการใช้งาน
+
     envVars:
       # --- จำเป็น ---
-      - key: TELEGRAM_BOT_TOKEN     # โทเคนบอท Telegram
+      - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: OPENAI_API_KEY         # คีย์ OpenAI
+      - key: OPENAI_API_KEY
         sync: false
 
-      # --- โมเดลเริ่มต้น + ตัวแรง สำหรับสลับอัตโนมัติ ---
-      - key: OPENAI_MODEL
-        value: gpt-5-mini
-      - key: OPENAI_MODEL_STRONG
-        value: gpt-5
+      # --- ถ้าใช้ Gemini / Google APIs / Backup to Drive ---
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON    # หรือใช้ GOOGLE_APPLICATION_CREDENTIALS ก็ได้
+        sync: false
+      - key: GDRIVE_BACKUP_FOLDER_ID
+        sync: false
 
-      # --- services ที่คุณใช้จริง ---
+      # --- คีย์สำหรับ weather / search / gold ---
       - key: OPENWEATHER_API_KEY
         sync: false
+      - key: GOOGLE_CSE_API_KEY
+        sync: false
+      - key: GOOGLE_CSE_ID
+        sync: false
+      - key: GOLDAPI_KEY
+        sync: false
 
-      # --- ปรับแต่ง/ความเสถียร ---
-      - key: TG_API_TIMEOUT         # timeout เรียก Telegram (วินาที)
-        value: "10"
-      - key: OPENAI_TIMEOUT_SEC     # timeout เรียก OpenAI (วินาที)
-        value: "30"
-      - key: OPENAI_MAX_RETRIES     # จำนวน retry OpenAI
-        value: "3"
-      - key: MAX_PAYLOAD_BYTES      # รับ payload webhook สูงสุด (10MB)
-        value: "10485760"
-      - key: TZ                     # โซนเวลา (แสดง log สวยงาม)
+      # --- ปรับแต่ง runtime/เสถียรภาพ ---
+      - key: TZ
         value: Asia/Bangkok
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: WEB_CONCURRENCY
+        value: "1"        # หลายโปรเซสก็ได้ แต่ SQLite จะแชร์ไฟล์เดียว — เริ่มที่ 1 จะเสถียรกว่า
+      - key: WEB_THREADS
+        value: "8"        # SQLite เปิด WAL แล้ว + check_same_thread=False รองรับงานอ่านพร้อมกันได้ดี
+      - key: WEB_TIMEOUT_SEC
+        value: "60"
+      - key: MAX_PAYLOAD_BYTES
+        value: "10485760" # 10MB
+      - key: TG_MAX_FILE_BYTES
+        value: "26214400" # 25MB
 
-      # --- ใช้ถ้าต้องการล็อก webhook ด้วย secret token ---
-      # ตั้งค่าให้ตรงกับตอน setWebhook?secret_token=...
+      # --- Webhook security (แนะนำ) ---
       - key: TELEGRAM_SECRET_TOKEN
         sync: false
+      - key: TELEGRAM_ALLOWED_UPDATES
+        value: message,edited_message,callback_query
+      - key: DROP_PENDING_UPDATES
+        value: "1"
+
+      # --- บริหารจัดการ/โควตา/แอดมิน ---
+      - key: SUPER_ADMIN_IDS        # เช่น "604990227,123456789"
+        sync: false
+      - key: ADMIN_CHAT_ID
+        sync: false
+      - key: USAGE_TEXT_DAILY_LIMIT
+        value: "60"
+      - key: USAGE_IMAGE_DAILY_LIMIT
+        value: "15"
