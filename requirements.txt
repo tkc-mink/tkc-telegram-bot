@@ -1,17 +1,20 @@
 # Web Framework
-flask==3.0.3
+Flask==3.0.3
 gunicorn==21.2.0
 
-# --- NEW: Google AI (Gemini) ---
-google-generativeai==0.7.2
+# --- OpenAI (GPT) ---
+openai>=1.44.0
 
-# --- UPGRADED: Image & File Handling ---
+# --- Google AI (Gemini) ---
+google-generativeai>=0.8.3
+
+# --- Image & File Handling ---
 Pillow>=10.3.0
 python-pptx==0.6.23
 openpyxl==3.1.4
 PyPDF2==3.0.1
 
-# --- EXISTING: HTTP, Google Auth & Utilities ---
+# --- HTTP, Google Auth & Utilities ---
 requests==2.32.3
 httpx==0.27.2
 google-api-python-client==2.131.0
@@ -25,9 +28,6 @@ pytz==2024.1
 python-dotenv==1.0.1
 langdetect==1.0.9
 
-# --- RE-ADDED: Dependencies for Tool Functions ---
+# --- Dependencies for Tool Functions ---
 beautifulsoup4==4.12.3
 lxml==5.2.1
-
-# --- REMOVED: Old/Redundant Libraries ---
-# openai==1.43.0 (Replaced by google-generativeai)
