@@ -4,8 +4,8 @@
 จัดการ context / usage / location สำหรับผู้ใช้ (Stable & Backward-Compatible)
 
 คุณสมบัติ:
-- โควตาประจำวัน (แยกข้อความ/รูป) ต่อผู้ใช้ ต่อวัน + ไฟล์ล็อกกันชนกันหลายโปรเซส
-- เขียนไฟล์แบบ atomic (.tmp → os.replace) ป้องกันไฟล์พัง
+- โควตาประจำวัน (แยกข้อความ/รูป) ต่อผู้ใช้ ต่อวัน + ไฟล์ล็อกกันชนกันหลายโปรเซส (cross-platform)
+- เขียนไฟล์แบบ atomic ผ่าน utils.json_utils (มีสำรอง .bak)
 - เก็บย้อนหลัง/ล้างข้อมูลเก่าอัตโนมัติ
 - อัปเกรดสคีมา usage เดิมอัตโนมัติ (int) → โครงสร้างใหม่ {"users": {uid: {"text","image"}}}
 - คงฟังก์ชันเดิม: check_and_increase_usage, get_usage_for, update_context, is_waiting_review ฯลฯ
@@ -22,6 +22,8 @@ ENV สำคัญ (มีค่าเริ่มต้นให้):
 - USAGE_LOCK_TIMEOUT_SEC (default: 8)
 - USAGE_LOCK_RETRY_INTERVAL (default: 0.2)
 - EXEMPT_USER_IDS (เช่น "123,456")
+- CTX_KEEP_LAST (default: 6)                      # เก็บกี่ชิ้นต่อผู้ใช้ (context/messages)
+- CTX_MAX_CHARS (default: 2000)                   # ตัดข้อความยาวเกิน (ต่อชิ้น) กันไฟล์บวม
 - (Compat legacy files — จะเขียนสำรองไว้ด้วยเพื่อความเข้ากันได้)
   - LEGACY_USAGE_FILE (default: "usage.json")         # นับข้อความแบบเดิม (int)
   - LEGACY_IMAGE_USAGE_FILE (default: "image_usage.json")
@@ -33,20 +35,23 @@ from typing import Any, Dict, List, Optional, Tuple
 import os
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-# -------- Timezone --------
+# ---------- Safe JSON I/O ----------
+from utils.json_utils import load_json_safe as _load_json, save_json_safe as _save_json
+
+# ---------- Timezone ----------
 try:
     from zoneinfo import ZoneInfo  # py>=3.9
 except Exception:  # pragma: no cover
     ZoneInfo = None  # type: ignore
 
-# -------- Files (context & location) --------
-CONTEXT_FILE       = os.getenv("CONTEXT_FILE", "context_history.json")     # list[str] แบบเดิม
-CONTEXT_MSG_FILE   = os.getenv("CONTEXT_MSG_FILE", "context_messages.json")# list[{"role","content"}]
+# ---------- Files (context & location) ----------
+CONTEXT_FILE       = os.getenv("CONTEXT_FILE", "context_history.json")      # list[str] แบบเดิม
+CONTEXT_MSG_FILE   = os.getenv("CONTEXT_MSG_FILE", "context_messages.json") # list[{"role","content"}]
 LOCATION_FILE      = os.getenv("LOCATION_FILE", "location_logs.json")
 
-# -------- Usage (new consolidated) --------
+# ---------- Usage (new consolidated) ----------
 USAGE_FILE         = os.getenv("USAGE_FILE", "usage.json")
 APP_TZ             = os.getenv("APP_TZ", "Asia/Bangkok")
 TEXT_LIMIT_DEFAULT = int(os.getenv("USAGE_TEXT_DAILY_LIMIT", os.getenv("MAX_QUESTION_PER_DAY", "60")))
@@ -56,63 +61,79 @@ LOCK_FILE          = os.getenv("USAGE_LOCK_FILE", USAGE_FILE + ".lock")
 LOCK_TIMEOUT_SEC   = float(os.getenv("USAGE_LOCK_TIMEOUT_SEC", "8"))
 LOCK_RETRY_INTERVAL= float(os.getenv("USAGE_LOCK_RETRY_INTERVAL", "0.2"))
 
-# -------- Legacy usage files (optional mirror for backward compatibility) --------
+# ---------- Legacy usage files (optional mirror for backward compatibility) ----------
 LEGACY_USAGE_FILE        = os.getenv("LEGACY_USAGE_FILE", "usage.json")
 LEGACY_IMAGE_USAGE_FILE  = os.getenv("LEGACY_IMAGE_USAGE_FILE", "image_usage.json")
 WRITE_LEGACY_USAGE_FILES = os.getenv("WRITE_LEGACY_USAGE_FILES", "1") == "1"
 
-# -------- Exempt users --------
+# ---------- Context caps ----------
+CTX_KEEP_LAST      = int(os.getenv("CTX_KEEP_LAST", "6"))
+CTX_MAX_CHARS      = int(os.getenv("CTX_MAX_CHARS", "2000"))
+
+# ---------- Exempt users ----------
 _exempt_raw = os.getenv("EXEMPT_USER_IDS", "")
 EXEMPT_USER_IDS: set[str] = {x.strip() for x in _exempt_raw.split(",") if x.strip()}
 
-# ====================== JSON helpers ======================
-def _ensure_parent_dir(path: str) -> None:
-    d = os.path.dirname(os.path.abspath(path))
-    if d and not os.path.exists(d):
-        os.makedirs(d, exist_ok=True)
-
-def _load_json(path: str) -> dict:
-    try:
-        if not os.path.exists(path):
-            return {}
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"[context_utils] load_json({path}) error: {e}")
-        return {}
-
-def _save_json_atomic(path: str, data: dict) -> None:
-    try:
-        _ensure_parent_dir(path)
-        tmp = f"{path}.tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, path)
-    except Exception as e:
-        print(f"[context_utils] save_json_atomic({path}) error: {e}")
-
 # ====================== Lock (cross-process) ======================
+# ใช้ไฟล์ล็อกเดียว รองรับทั้ง Windows (msvcrt) / POSIX (fcntl); ถ้าไม่มีให้ fallback วิธีเดิม
+IS_WIN = os.name == "nt"
+try:
+    if IS_WIN:
+        import msvcrt  # type: ignore
+    else:
+        import fcntl   # type: ignore
+except Exception:
+    msvcrt = None  # type: ignore
+    fcntl = None   # type: ignore
+
 class _FileLock:
     def __init__(self, path: str):
         self.path = path
+        self._fh = None
+        self._fallback = False
 
     def __enter__(self):
+        # primary: advisory lock on an always-present file
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.path)) or ".", exist_ok=True)
+        except Exception:
+            pass
+
         start = time.time()
+        # Try advisory locking
+        if (IS_WIN and msvcrt) or (not IS_WIN and fcntl):
+            self._fh = open(self.path, "a+")
+            while True:
+                try:
+                    if IS_WIN and msvcrt:
+                        msvcrt.locking(self._fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except Exception:
+                    if (time.time() - start) > LOCK_TIMEOUT_SEC:
+                        raise TimeoutError("usage lock busy")
+                    time.sleep(LOCK_RETRY_INTERVAL)
+            return self
+
+        # fallback: O_EXCL temp lock file
+        self._fallback = True
+        token = f"{os.getpid()} {time.time()}"
         while True:
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 try:
-                    os.write(fd, f"{os.getpid()} {time.time()}".encode("utf-8"))
+                    os.write(fd, token.encode("utf-8"))
                 finally:
                     os.close(fd)
-                break  # acquired
+                break
             except FileExistsError:
                 if (time.time() - start) > LOCK_TIMEOUT_SEC:
+                    # ถ้าค้างนานเกิน ลองลบทิ้งถ้าเก่ามาก
                     try:
                         st = os.stat(self.path)
-                        age = time.time() - st.st_mtime
-                        if age > max(LOCK_TIMEOUT_SEC * 4, 10):
-                            os.remove(self.path)  # stale lock
+                        if time.time() - st.st_mtime > max(LOCK_TIMEOUT_SEC * 4, 10):
+                            os.remove(self.path)
                             continue
                     except Exception:
                         pass
@@ -122,21 +143,60 @@ class _FileLock:
 
     def __exit__(self, exc_type, exc, tb):
         try:
-            os.remove(self.path)
+            if self._fh:
+                if IS_WIN and msvcrt:
+                    try:
+                        msvcrt.locking(self._fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    except Exception:
+                        pass
+                elif fcntl:
+                    try:
+                        fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+                self._fh.close()
         except Exception:
             pass
+        if self._fallback:
+            try:
+                os.remove(self.path)
+            except Exception:
+                pass
 
 # ====================== Time helpers ======================
-def _now_local() -> datetime:
+def _get_tz() -> timezone:
     if ZoneInfo:
         try:
-            return datetime.now(ZoneInfo(APP_TZ))
+            return ZoneInfo(APP_TZ)
         except Exception:
-            pass
-    return datetime.now()
+            return timezone.utc
+    return timezone.utc
+
+def _now_local() -> datetime:
+    return datetime.now(_get_tz())
 
 def _today_str() -> str:
     return _now_local().strftime("%Y-%m-%d")
+
+# ====================== JSON helpers (thin wrappers) ======================
+def _ensure_parent_dir(path: str) -> None:
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
+
+def _save_json_atomic(path: str, data: dict) -> None:
+    _ensure_parent_dir(path)
+    # ใช้ json_utils.save_json_safe (atomic + backup + lock)
+    ok = _save_json(data, path, ensure_ascii=False, indent=2, sort_keys=False)
+    if not ok:
+        # fallback minimal (ไม่ควรเกิด แต่กันแหก)
+        try:
+            tmp = f"{path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, path)
+        except Exception as e:
+            print(f"[context_utils] fallback save_json_atomic error: {e}")
 
 # ====================== Usage data helpers ======================
 def _is_date_str(s: str) -> bool:
@@ -183,7 +243,7 @@ def _migrate_legacy_day(day_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"users": users}
 
 def _load_usage() -> Dict[str, Any]:
-    data = _load_json(USAGE_FILE)
+    data = _load_json(USAGE_FILE, default={})
     if not isinstance(data, dict):
         data = {}
     return data
@@ -204,17 +264,15 @@ def _ensure_user_bucket(day_bucket: Dict[str, Any], user_id: str) -> Dict[str, i
 def _write_legacy_mirrors(day: str, user_id: str, used_text: int, used_image: int) -> None:
     if not WRITE_LEGACY_USAGE_FILES:
         return
-    # legacy text
     try:
-        u = _load_json(LEGACY_USAGE_FILE)
+        u = _load_json(LEGACY_USAGE_FILE, default={})
         u.setdefault(day, {})
         u[day][user_id] = used_text
         _save_json_atomic(LEGACY_USAGE_FILE, u)
     except Exception as e:
         print(f"[context_utils] legacy usage mirror error: {e}")
-    # legacy image
     try:
-        iu = _load_json(LEGACY_IMAGE_USAGE_FILE)
+        iu = _load_json(LEGACY_IMAGE_USAGE_FILE, default={})
         iu.setdefault(day, {})
         iu[day][user_id] = used_image
         _save_json_atomic(LEGACY_IMAGE_USAGE_FILE, iu)
@@ -223,7 +281,7 @@ def _write_legacy_mirrors(day: str, user_id: str, used_text: int, used_image: in
 
 def _limits(is_image: bool, override: Optional[int]=None) -> int:
     if override is not None:
-        return int(override)
+        return max(0, int(override))
     return IMAGE_LIMIT_DEFAULT if is_image else TEXT_LIMIT_DEFAULT
 
 # ====================== Public: Usage API ======================
@@ -323,11 +381,11 @@ def reset_usage_for(user_id: Optional[str] = None, date: Optional[str] = None) -
         try:
             if WRITE_LEGACY_USAGE_FILES:
                 if user_id is None:
-                    u = _load_json(LEGACY_USAGE_FILE); u.pop(day, None); _save_json_atomic(LEGACY_USAGE_FILE, u)
-                    iu = _load_json(LEGACY_IMAGE_USAGE_FILE); iu.pop(day, None); _save_json_atomic(LEGACY_IMAGE_USAGE_FILE, iu)
+                    u = _load_json(LEGACY_USAGE_FILE, default={}); u.pop(day, None); _save_json_atomic(LEGACY_USAGE_FILE, u)
+                    iu = _load_json(LEGACY_IMAGE_USAGE_FILE, default={}); iu.pop(day, None); _save_json_atomic(LEGACY_IMAGE_USAGE_FILE, iu)
                 else:
-                    u = _load_json(LEGACY_USAGE_FILE); u.setdefault(day, {}); u[day][str(user_id)] = 0; _save_json_atomic(LEGACY_USAGE_FILE, u)
-                    iu = _load_json(LEGACY_IMAGE_USAGE_FILE); iu.setdefault(day, {}); iu[day][str(user_id)] = 0; _save_json_atomic(LEGACY_IMAGE_USAGE_FILE, iu)
+                    u = _load_json(LEGACY_USAGE_FILE, default={}); u.setdefault(day, {}); u[day][str(user_id)] = 0; _save_json_atomic(LEGACY_USAGE_FILE, u)
+                    iu = _load_json(LEGACY_IMAGE_USAGE_FILE, default={}); iu.setdefault(day, {}); iu[day][str(user_id)] = 0; _save_json_atomic(LEGACY_IMAGE_USAGE_FILE, iu)
         except Exception as e:
             print(f"[context_utils] reset legacy mirror error: {e}")
 
@@ -345,26 +403,32 @@ def get_totals_today() -> Dict[str, int]:
 def _as_uid(user_id: Any) -> str:
     return str(user_id)
 
+def _clip_text(s: str) -> str:
+    s = str(s or "")
+    if len(s) > CTX_MAX_CHARS:
+        return s[:CTX_MAX_CHARS]
+    return s
+
 def get_context(user_id: str) -> List[str]:
-    ctx = _load_json(CONTEXT_FILE)
+    ctx = _load_json(CONTEXT_FILE, default={})
     val = ctx.get(_as_uid(user_id), [])
     if isinstance(val, list):
         out: List[str] = []
         for x in val:
-            out.append(x if isinstance(x, str) else str(x))
+            out.append(_clip_text(x if isinstance(x, str) else str(x)))
         return out
     return []
 
-def update_context(user_id: str, text: str, keep_last: int = 6) -> None:
-    ctx = _load_json(CONTEXT_FILE)
+def update_context(user_id: str, text: str, keep_last: int = CTX_KEEP_LAST) -> None:
+    ctx = _load_json(CONTEXT_FILE, default={})
     uid = _as_uid(user_id)
     ctx.setdefault(uid, [])
-    ctx[uid].append(text)
-    ctx[uid] = ctx[uid][-keep_last:]
+    ctx[uid].append(_clip_text(text))
+    ctx[uid] = ctx[uid][-max(1, int(keep_last)):]
     _save_json_atomic(CONTEXT_FILE, ctx)
 
 def reset_context(user_id: str) -> None:
-    ctx = _load_json(CONTEXT_FILE)
+    ctx = _load_json(CONTEXT_FILE, default={})
     ctx[_as_uid(user_id)] = []
     _save_json_atomic(CONTEXT_FILE, ctx)
 
@@ -393,7 +457,7 @@ def should_reset_context(new_text: str, prev_context: list) -> bool:
 
 # ====================== Context (แบบใหม่: messages) ======================
 def _load_msg_ctx() -> dict:
-    return _load_json(CONTEXT_MSG_FILE)
+    return _load_json(CONTEXT_MSG_FILE, default={})
 
 def _save_msg_ctx(data: dict) -> None:
     _save_json_atomic(CONTEXT_MSG_FILE, data)
@@ -406,20 +470,20 @@ def get_context_messages(user_id: str) -> List[Dict[str, str]]:
         for x in val:
             if isinstance(x, dict) and "role" in x and "content" in x:
                 role = str(x["role"]).lower().strip()
-                content = str(x["content"])
+                content = _clip_text(str(x["content"]))
                 if role in ("user", "assistant", "system"):
                     out.append({"role": role, "content": content})
     return out
 
-def append_message(user_id: str, role: str, content: str, keep_last: int = 6) -> None:
+def append_message(user_id: str, role: str, content: str, keep_last: int = CTX_KEEP_LAST) -> None:
     role_norm = (role or "").lower().strip()
     if role_norm not in ("user", "assistant", "system"):
         role_norm = "user"
     ctx = _load_msg_ctx()
     uid = _as_uid(user_id)
     ctx.setdefault(uid, [])
-    ctx[uid].append({"role": role_norm, "content": content})
-    ctx[uid] = ctx[uid][-keep_last:]
+    ctx[uid].append({"role": role_norm, "content": _clip_text(content)})
+    ctx[uid] = ctx[uid][-max(1, int(keep_last)):]
     _save_msg_ctx(ctx)
 
 def reset_context_messages(user_id: str) -> None:
@@ -431,13 +495,13 @@ def should_reset_context_messages(new_text: str, prev_messages: List[Dict[str, s
     last_text = _extract_last_text(prev_messages)
     return should_reset_context(new_text, [last_text] if last_text else [])
 
-def to_recent_llm_messages(user_id: str, keep_last: int = 6) -> List[Dict[str, str]]:
+def to_recent_llm_messages(user_id: str, keep_last: int = CTX_KEEP_LAST) -> List[Dict[str, str]]:
     msgs = get_context_messages(user_id)
-    return msgs[-keep_last:]
+    return msgs[-max(1, int(keep_last)) :]
 
 # ====================== Location ======================
 def get_user_location(user_id: str) -> Optional[Dict[str, Any]]:
-    loc = _load_json(LOCATION_FILE)
+    loc = _load_json(LOCATION_FILE, default={})
     val = loc.get(_as_uid(user_id))
     if isinstance(val, dict):
         return val
@@ -453,8 +517,12 @@ def get_user_location_coords(user_id: str) -> Optional[Tuple[float, float]]:
         return None
 
 def update_location(user_id: str, lat: float, lon: float) -> None:
-    loc = _load_json(LOCATION_FILE)
-    loc[_as_uid(user_id)] = {"lat": float(lat), "lon": float(lon), "ts": _now_local().isoformat(timespec="seconds")}
+    loc = _load_json(LOCATION_FILE, default={})
+    loc[_as_uid(user_id)] = {
+        "lat": float(lat),
+        "lon": float(lon),
+        "ts": _now_local().isoformat(timespec="seconds"),
+    }
     _save_json_atomic(LOCATION_FILE, loc)
 
 # alias เพื่อความเข้ากันได้กับโค้ดที่เรียกชื่อเดิม (ถ้ามี)
