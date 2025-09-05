@@ -1,40 +1,176 @@
 # config.py
 # -*- coding: utf-8 -*-
 """
-Environment variables และค่าคงที่ที่ใช้ทั้งโปรเจกต์
+Central configuration — safe & robust
+- ไม่ล้มตอน import แม้ยังไม่มี ENV ครบ
+- ยึดชื่อคีย์มาตรฐาน: GOOGLE_API_KEY (รองรับ alias GEMINI_API_KEY/PALM_API_KEY)
+- รวมค่าที่ใช้ทั้งโปรเจกต์ + Orchestrator
 """
 
+from __future__ import annotations
+from typing import List, Dict, Any, Optional
 import os
 
-# ==========================
-# Environment Configurations
-# ==========================
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# ---------- helpers ----------
+def env(name: str, default: str = "") -> str:
+    return os.getenv(name, default)
 
-if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
-    raise EnvironmentError(
-        "❌ TELEGRAM_TOKEN หรือ OPENAI_API_KEY ไม่ถูกตั้งค่าใน environment variable!"
-    )
+def env_bool(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return str(v).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
-# ==========================
-# File Paths & Constants
-# ==========================
-USAGE_FILE        = os.getenv("USAGE_FILE", "usage.json")
-IMAGE_USAGE_FILE  = os.getenv("IMAGE_USAGE_FILE", "image_usage.json")
-CONTEXT_FILE      = os.getenv("CONTEXT_FILE", "context_history.json")
-LOCATION_FILE     = os.getenv("LOCATION_FILE", "location_logs.json")
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except Exception:
+        return default
 
-# ==========================
-# Limits & Access Control
-# ==========================
-MAX_QUESTION_PER_DAY = int(os.getenv("MAX_QUESTION_PER_DAY", 30))
-MAX_IMAGE_PER_DAY    = int(os.getenv("MAX_IMAGE_PER_DAY", 15))
+def env_list(name: str, default: Optional[List[str]] = None, sep: str = ",") -> List[str]:
+    s = os.getenv(name)
+    if not s:
+        return default or []
+    return [x.strip() for x in s.replace(";", sep).split(sep) if x.strip()]
 
-# รายชื่อ user id ที่ไม่จำกัดการใช้งาน
-EXEMPT_USER_IDS = os.getenv("EXEMPT_USER_IDS", "6849909227").split(",")
+def _first(*vals: Optional[str], default: str = "") -> str:
+    for v in vals:
+        if v and str(v).strip():
+            return str(v).strip()
+    return default
 
-# ==========================
-# Other Settings
-# ==========================
-# SUPPORTED_FORMATS สามารถดึงจาก settings.py ได้ เพื่อให้เป็นแหล่งข้อมูลเดียว
+def _mask(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    s = str(s)
+    return s if len(s) <= 6 else f"{s[:3]}…{s[-3:]}"
+
+# ---------- paths ----------
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# ---------- tokens / keys (มาตรฐานเดียว) ----------
+TELEGRAM_BOT_TOKEN   = _first(env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_TOKEN"))
+TELEGRAM_SECRET_TOKEN = env("TELEGRAM_SECRET_TOKEN", "").strip()
+
+OPENAI_API_KEY = _first(env("OPENAI_API_KEY"), env("OPENAI_KEY"), env("OPENAI_SECRET_KEY"))
+# มาตรฐานคือ GOOGLE_API_KEY; alias รองรับของเดิม
+GOOGLE_API_KEY = _first(env("GOOGLE_API_KEY"), env("GEMINI_API_KEY"), env("PALM_API_KEY"))
+
+TELEGRAM_TOKEN_SET = bool(TELEGRAM_BOT_TOKEN)
+OPENAI_KEY_SET     = bool(OPENAI_API_KEY)
+GOOGLE_KEY_SET     = bool(GOOGLE_API_KEY)
+
+# ---------- models / router ----------
+OPENAI_MODEL_DIALOGUE = _first(
+    env("OPENAI_MODEL_DIALOGUE"),
+    env("OPENAI_MODEL"),
+    env("OPENAI_MODEL_STRONG"),
+    default="gpt-4o-mini",
+)
+
+GEMINI_MODEL_DIALOGUE = _first(
+    env("GEMINI_MODEL_DIALOGUE"),
+    env("GEMINI_MODEL"),
+    env("GOOGLE_MODEL"),
+    default="gemini-1.5-pro",
+)
+
+ROUTER_MODE           = env("ROUTER_MODE", "hybrid")   # hybrid | gpt | gemini
+ROUTER_MIN_CONFIDENCE = float(env("ROUTER_MIN_CONFIDENCE", "0.55"))
+
+# ---------- web / server ----------
+MAX_PAYLOAD_BYTES       = env_int("MAX_PAYLOAD_BYTES",       10 * 1024 * 1024)  # 10MB
+MAX_DECOMPRESSED_BYTES  = env_int("MAX_DECOMPRESSED_BYTES",  20 * 1024 * 1024)  # 20MB
+ENABLE_BACKUP_SCHEDULER = env_bool("ENABLE_BACKUP_SCHEDULER", True)
+TRUST_PROXY_HEADERS     = env_bool("TRUST_PROXY_HEADERS", True)
+LOG_JSON                = env_bool("LOG_JSON", False)
+
+# ---------- db / files ----------
+BOT_MEMORY_DB_FILE = env("BOT_MEMORY_DB_FILE", "bot_memory.db")
+
+USAGE_FILE        = env("USAGE_FILE",        os.path.join(DATA_DIR, "usage.json"))
+IMAGE_USAGE_FILE  = env("IMAGE_USAGE_FILE",  os.path.join(DATA_DIR, "image_usage.json"))
+CONTEXT_FILE      = env("CONTEXT_FILE",      os.path.join(DATA_DIR, "context_history.json"))
+CONTEXT_MSG_FILE  = env("CONTEXT_MSG_FILE",  os.path.join(DATA_DIR, "context_messages.json"))
+LOCATION_FILE     = env("LOCATION_FILE",     os.path.join(DATA_DIR, "location_logs.json"))
+
+# ---------- limits / access ----------
+MAX_QUESTION_PER_DAY = env_int("MAX_QUESTION_PER_DAY", 30)
+MAX_IMAGE_PER_DAY    = env_int("MAX_IMAGE_PER_DAY", 15)
+EXEMPT_USER_IDS      = env_list("EXEMPT_USER_IDS", ["6849909227"])
+
+# ---------- (optional) supported formats from settings.py ----------
+try:
+    from settings import SUPPORTED_FORMATS  # type: ignore
+except Exception:
+    SUPPORTED_FORMATS: List[str] = []
+
+# ---------- build info ----------
+GIT_SHA    = env("GIT_SHA", "")
+BUILD_TIME = env("BUILD_TIME", "")
+
+# ---------- diagnostics / validation ----------
+def missing_required() -> List[str]:
+    missing: List[str] = []
+    if not TELEGRAM_TOKEN_SET:
+        missing.append("TELEGRAM_BOT_TOKEN or TELEGRAM_TOKEN")
+    return missing
+
+def missing_recommended() -> List[str]:
+    out: List[str] = []
+    if not OPENAI_KEY_SET:
+        out.append("OPENAI_API_KEY")
+    if not GOOGLE_KEY_SET:
+        out.append("GOOGLE_API_KEY")
+    return out
+
+def diag() -> Dict[str, Any]:
+    """ข้อมูลสำหรับ /diag (mask คีย์)"""
+    return {
+        "env": {
+            "telegram_token_set": TELEGRAM_TOKEN_SET,
+            "openai_key_set": OPENAI_KEY_SET,
+            "google_key_set": GOOGLE_KEY_SET,
+            "openai_model": OPENAI_MODEL_DIALOGUE,
+            "gemini_model": GEMINI_MODEL_DIALOGUE,
+            "router_mode": ROUTER_MODE,
+            "router_min_confidence": ROUTER_MIN_CONFIDENCE,
+        },
+        "paths": {
+            "data_dir": DATA_DIR,
+            "db_file": BOT_MEMORY_DB_FILE,
+            "usage_file": USAGE_FILE,
+            "image_usage_file": IMAGE_USAGE_FILE,
+            "context_file": CONTEXT_FILE,
+            "context_msg_file": CONTEXT_MSG_FILE,
+            "location_file": LOCATION_FILE,
+        },
+        "build": {"git_sha": _mask(GIT_SHA), "build_time": BUILD_TIME},
+        "supported_formats": SUPPORTED_FORMATS,
+    }
+
+__all__ = [
+    # helpers
+    "env", "env_bool", "env_int", "env_list", "diag",
+    # tokens/keys
+    "TELEGRAM_BOT_TOKEN", "TELEGRAM_SECRET_TOKEN",
+    "OPENAI_API_KEY", "GOOGLE_API_KEY",
+    "TELEGRAM_TOKEN_SET", "OPENAI_KEY_SET", "GOOGLE_KEY_SET",
+    # models/router
+    "OPENAI_MODEL_DIALOGUE", "GEMINI_MODEL_DIALOGUE",
+    "ROUTER_MODE", "ROUTER_MIN_CONFIDENCE",
+    # server
+    "MAX_PAYLOAD_BYTES", "MAX_DECOMPRESSED_BYTES",
+    "ENABLE_BACKUP_SCHEDULER", "TRUST_PROXY_HEADERS", "LOG_JSON",
+    # files/db
+    "ROOT_DIR", "DATA_DIR", "BOT_MEMORY_DB_FILE",
+    "USAGE_FILE", "IMAGE_USAGE_FILE", "CONTEXT_FILE", "CONTEXT_MSG_FILE", "LOCATION_FILE",
+    # limits
+    "MAX_QUESTION_PER_DAY", "MAX_IMAGE_PER_DAY", "EXEMPT_USER_IDS",
+    # settings/build
+    "SUPPORTED_FORMATS", "GIT_SHA", "BUILD_TIME",
+    # validation
+    "missing_required", "missing_recommended",
+]
