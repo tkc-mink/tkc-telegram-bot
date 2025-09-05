@@ -11,6 +11,11 @@ Thin wrapper ที่เข้ากับโค้ดเดิม แต่ใ
 - ✅ ไม่ตัดข้อความทิ้ง: จะแบ่งข้อความเป็นก้อนละ ≤4096 ตัวอักษรอัตโนมัติ
 - ✅ ส่งสถานะกำลังพิมพ์ (send_typing_action) + ออปชัน auto_typing
 - ✅ retry ฉลาดขึ้น (จับ retry_after จาก Telegram + backoff + jitter)
+- ✅ ออปชันเสริม: disable_notification / protect_content / reply_to_message_id
+
+หมายเหตุ:
+- ดีฟอลต์ parse_mode = "HTML" เพื่อความเสถียร
+- ถ้าใช้ MarkdownV2 และข้อความยังไม่ escape เอง อาจเกิด formatting error ได้
 """
 
 from __future__ import annotations
@@ -27,16 +32,15 @@ try:
 except Exception:
     _CFG_BOT_TOKEN = ""
 
-# ===== Low-level Telegram API helpers (have debug logs inside) =====
+# ===== Low-level Telegram API helpers (มี debug ภายใน) =====
 from utils.telegram_api import (
-    _api_post,                   # ใช้เป็นหลักเพื่อควบคุม retry
-    send_message as tg_send_message,  # คง import ไว้เพื่อเข้ากันได้ (ไม่ได้เรียกโดยตรง)
-    send_photo   as tg_send_photo,    # คง import ไว้เพื่อเข้ากันได้ (ไม่ได้เรียกโดยตรง)
+    _api_post,                        # ใช้เป็นหลักเพื่อควบคุม retry/response
 )
 
 ALLOWED_PARSE = {"HTML", "MARKDOWN", "MARKDOWNV2"}  # จะ upper() ก่อนเช็ค
 TELEGRAM_MESSAGE_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
+
 
 # ===== Token helpers =====
 def get_telegram_token() -> str:
@@ -53,15 +57,18 @@ def get_telegram_token() -> str:
         print("[message_utils] WARNING: Telegram token not set (config/ENV)")
     return tok
 
+
 def _log(tag: str, **kw):
     try:
         print(f"[message_utils] {tag} :: " + json.dumps(kw, ensure_ascii=False))
     except Exception:
         print(f"[message_utils] {tag} :: (unprintable log)")
 
+
 def _safe_preview(s: str, n: int = 160) -> str:
     s = s or ""
     return (s[:n] + "…") if len(s) > n else s
+
 
 # ===== No-echo blocker (กันข้อความทวน/ยืนยันคำถาม) =====
 _NO_ECHO_PREFIXES = re.compile(
@@ -88,6 +95,7 @@ def _should_block_no_echo(text: str) -> bool:
         return False
     return bool(_NO_ECHO_PREFIXES.match(text))
 
+
 # ===== Split helper =====
 def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[str]:
     """
@@ -97,7 +105,6 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
         return [""]
     if not isinstance(text, str):
         text = str(text)
-
     if not text:
         return [""]
 
@@ -109,27 +116,23 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
     for ln in lines:
         L = len(ln)
         if cur_len + L <= limit:
-            buf.append(ln)
-            cur_len += L
+            buf.append(ln); cur_len += L
             continue
 
         if L > limit:
             # บรรทัดยาวเกิน limit เอง → ตัดเป็นท่อน ๆ
             if buf:
-                parts.append("".join(buf))
-                buf, cur_len = [], 0
+                parts.append("".join(buf)); buf, cur_len = [], 0
             chunk = ln
             while len(chunk) > limit:
                 parts.append(chunk[:limit])
                 chunk = chunk[limit:]
             if chunk:
-                buf.append(chunk)
-                cur_len = len(chunk)
+                buf.append(chunk); cur_len = len(chunk)
         else:
             # ปิดก้อนเดิม แล้วเริ่มใหม่
             parts.append("".join(buf))
-            buf = [ln]
-            cur_len = L
+            buf = [ln]; cur_len = L
 
     if buf:
         parts.append("".join(buf))
@@ -138,8 +141,7 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
     normalized: List[str] = []
     for p in parts:
         if len(p) <= limit:
-            normalized.append(p)
-            continue
+            normalized.append(p); continue
         words = p.split(" ")
         cur, l = [], 0
         for w in words:
@@ -147,14 +149,14 @@ def _split_for_telegram(text: str, limit: int = TELEGRAM_MESSAGE_LIMIT) -> List[
             if l + len(add) > limit and cur:
                 normalized.append("".join(cur).rstrip())
                 cur, l = [], 0
-            cur.append(add)
-            l += len(add)
+            cur.append(add); l += len(add)
         if cur:
             normalized.append("".join(cur).rstrip())
 
     return normalized or [""]
 
-# ===== Retry helpers (ฉลาด: จับ retry_after + backoff) =====
+
+# ===== Retry helpers (จับ retry_after + backoff + jitter) =====
 def _extract_retry_after(err: Any) -> Optional[int]:
     """
     พยายามดึงค่า retry_after จาก error (ทั้งแบบ dict ของ Telegram และจากข้อความ)
@@ -184,6 +186,7 @@ def _extract_retry_after(err: Any) -> Optional[int]:
     except Exception:
         pass
     return None
+
 
 def _send_with_retry(method: str, payload: Dict[str, Any], max_attempts: int = 3) -> Optional[Dict[str, Any]]:
     """
@@ -226,7 +229,8 @@ def _send_with_retry(method: str, payload: Dict[str, Any], max_attempts: int = 3
             return None
     return None
 
-# ===== High-level senders =====
+
+# ===== Chat actions =====
 def send_typing_action(chat_id: int | str, action: str = "typing") -> None:
     """
     ส่งสถานะกำลังพิมพ์/อัปโหลด ฯลฯ
@@ -242,6 +246,7 @@ def send_typing_action(chat_id: int | str, action: str = "typing") -> None:
     except Exception as e:
         _log("ERROR_CHAT_ACTION", err=str(e))
 
+
 def _normalize_parse_mode(parse_mode: Optional[str]) -> str:
     """
     คืนค่า parse_mode ที่ปลอดภัย (HTML เป็นค่าเริ่มต้น)
@@ -253,6 +258,8 @@ def _normalize_parse_mode(parse_mode: Optional[str]) -> str:
     # คืนรูปแบบต้นทาง (เคสถูกต้อง) ให้สวยงาม
     return "MarkdownV2" if pm_up == "MARKDOWNV2" else ("Markdown" if pm_up == "MARKDOWN" else "HTML")
 
+
+# ===== High-level senders =====
 def send_message(
     chat_id: int | str,
     text: str,
@@ -261,6 +268,9 @@ def send_message(
     reply_markup: Optional[Dict[str, Any]] = None,
     reply_to_message_id: Optional[int] = None,
     auto_typing: bool = True,
+    *,
+    disable_notification: bool = False,
+    protect_content: bool = False,
 ) -> None:
     """
     ส่งข้อความไป Telegram
@@ -268,6 +278,7 @@ def send_message(
     - ✅ บล็อคข้อความแนวทวน/ยืนยันก่อนส่ง (เฉพาะชิ้นแรกเท่านั้น)
     - รองรับ parse_mode (HTML/Markdown/MarkdownV2)
     - ส่งสถานะกำลังพิมพ์อัตโนมัติเมื่อ auto_typing=True
+    - ออปชันเสริม: disable_notification / protect_content (เฉพาะชิ้นแรก)
     """
     token = get_telegram_token()
     if not token:
@@ -290,22 +301,27 @@ def send_message(
                 # ส่ง typing action ก่อนยิงข้อความแต่ละชิ้น
                 send_typing_action(chat_id, action="typing")
 
-            payload = {
+            payload: Dict[str, Any] = {
                 "chat_id": chat_id,
                 "text": chunk,
                 "parse_mode": pm,
                 "disable_web_page_preview": disable_preview,
             }
-            # ใส่ reply_markup / reply_to_message_id เฉพาะชิ้นแรกพอ
+            # ใส่ reply_markup / reply_to_message_id / disable_notification / protect_content เฉพาะชิ้นแรกพอ
             if idx == 0:
                 if reply_markup:
                     payload["reply_markup"] = reply_markup
                 if reply_to_message_id is not None:
                     payload["reply_to_message_id"] = reply_to_message_id
+                if disable_notification:
+                    payload["disable_notification"] = True
+                if protect_content:
+                    payload["protect_content"] = True
 
             _send_with_retry("sendMessage", payload, max_attempts=3)
     except Exception as e:
         _log("ERROR_SEND_MESSAGE", err=str(e))
+
 
 def send_photo(
     chat_id: int | str,
@@ -315,9 +331,12 @@ def send_photo(
     reply_markup: Optional[Dict[str, Any]] = None,
     reply_to_message_id: Optional[int] = None,
     auto_typing: bool = True,
+    *,
+    disable_notification: bool = False,
+    protect_content: bool = False,
 ) -> None:
     """
-    ส่งรูปภาพไป Telegram
+    ส่งรูปภาพไป Telegram (ด้วย URL หรือ file_id)
     - จำกัด caption ~1024 ตัวอักษรตามข้อกำหนด Telegram
     - รองรับ parse_mode (MarkdownV2/Markdown/HTML)
     - auto_typing จะส่ง action=upload_photo ก่อน
@@ -334,7 +353,7 @@ def send_photo(
         if auto_typing:
             send_typing_action(chat_id, action="upload_photo")
 
-        payload = {
+        payload: Dict[str, Any] = {
             "chat_id": chat_id,
             "photo": photo_url,
             "caption": cap,
@@ -344,10 +363,15 @@ def send_photo(
             payload["reply_markup"] = reply_markup
         if reply_to_message_id is not None:
             payload["reply_to_message_id"] = reply_to_message_id
+        if disable_notification:
+            payload["disable_notification"] = True
+        if protect_content:
+            payload["protect_content"] = True
 
         _send_with_retry("sendPhoto", payload, max_attempts=3)
     except Exception as e:
         _log("ERROR_SEND_PHOTO", err=str(e))
+
 
 def send_document(
     chat_id: int | str,
@@ -357,9 +381,12 @@ def send_document(
     reply_markup: Optional[Dict[str, Any]] = None,
     reply_to_message_id: Optional[int] = None,
     auto_typing: bool = True,
+    *,
+    disable_notification: bool = False,
+    protect_content: bool = False,
 ) -> None:
     """
-    ส่งเอกสาร/ไฟล์ (โดยให้เป็น URL)
+    ส่งเอกสาร/ไฟล์ (โดยให้เป็น URL หรือ file_id)
     - รองรับ parse_mode
     - auto_typing จะส่ง action=upload_document ก่อน
     """
@@ -375,7 +402,7 @@ def send_document(
         if auto_typing:
             send_typing_action(chat_id, action="upload_document")
 
-        payload = {
+        payload: Dict[str, Any] = {
             "chat_id": chat_id,
             "document": file_url,
             "caption": cap,
@@ -385,10 +412,15 @@ def send_document(
             payload["reply_markup"] = reply_markup
         if reply_to_message_id is not None:
             payload["reply_to_message_id"] = reply_to_message_id
+        if disable_notification:
+            payload["disable_notification"] = True
+        if protect_content:
+            payload["protect_content"] = True
 
         _send_with_retry("sendDocument", payload, max_attempts=3)
     except Exception as e:
         _log("ERROR_SEND_DOCUMENT", err=str(e))
+
 
 def ask_for_location(
     chat_id: int | str,
