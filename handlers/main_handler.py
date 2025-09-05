@@ -6,6 +6,11 @@ Main Message Handler (The Bot's Brain) — FINAL, stable & backward-compatible
 - กันประมวลผลซ้ำด้วย update_id (dedupe ในตัว; ถ้ามี utils.dedupe จะใช้ของเดิมอัตโนมัติ)
 - คงฟีเจอร์เดิมทั้งหมด: history/review/weather/doc/gold/lottery/stock/crypto/oil/report/faq/favorite/admin
 - รองรับข้อความ location, document และคำสั่ง /start, /help, /whoami, /reset (และ trigger ภาษาไทย)
+
+[อัปเดตใหม่]
+- รวมร่าง GPT + Gemini ผ่าน Orchestrator: เลือกจุดแข็งแต่ละฝั่งอัตโนมัติ
+- มี fallback อัตโนมัติถ้าตัวแรกไม่มั่นใจ/มีปัญหา
+- รวม facts จาก utils (weather/gold/oil/stock/crypto/news) ก่อนส่งให้โมเดล (ผ่าน aggregator ใน orchestrator)
 """
 
 from __future__ import annotations
@@ -32,12 +37,12 @@ from handlers.admin import handle_admin_command
 from utils.telegram_api import send_message as tg_send_message  # ชื่อมาตรฐาน
 send_message = tg_send_message  # alias เพื่อรองรับโค้ดเก่า
 
+# (คงของเดิมไว้เป็น fallback) — Function Calling Engine เดิม
 from function_calling import process_with_function_calling, summarize_text_with_gpt
-# สำหรับ /reset เราจะล้าง session Gemini โดยตรง
 try:
     from function_calling import CHAT_SESSIONS as _CHAT_SESSIONS  # type: ignore
 except Exception:
-    _CHAT_SESSIONS = None  # ถ้าไม่มีจะข้ามฟีเจอร์ /reset ให้ยังตอบได้ตามปกติ
+    _CHAT_SESSIONS = None
 
 from utils.bot_profile import bot_intro
 from utils.memory_store import (
@@ -48,7 +53,12 @@ from utils.memory_store import (
     prune_and_maybe_summarize,
     update_user_location,
 )
+
 from utils.admin_utils import notify_super_admin_for_approval
+
+# ===== Orchestrator (ใหม่) =====
+# เลือก GPT/Gemini อัตโนมัติตามประเภทคำถาม + ดึง facts ก่อนสรุปคำตอบ
+from orchestrator.orchestrate import orchestrate
 
 # ===== Optional external dedupe support =====
 try:
@@ -192,6 +202,7 @@ def handle_message(data: Dict[str, Any]) -> None:
     จุดเข้าใช้งานจาก Flask webhook (main.py)
     - ปลอดภัยต่อการ retry: มี dedupe ด้วย update_id
     - เสถียร: แยกเส้นทาง admin/location/document/command ก่อนลงโมเดล
+    - โหมดสนทนาทั่วไป: ใช้ Orchestrator (GPT+Gemini) และ fallback ไป engine เดิมได้
     """
     chat_id = None
     try:
@@ -259,21 +270,40 @@ def handle_message(data: Dict[str, Any]) -> None:
             if user_text_low.startswith(command):
                 return handler(user_info, user_text)
 
-        # --- โหมดสนทนาทั่วไป (Function Calling) ---
+        # =========================
+        # โหมดสนทนาทั่วไป (ใช้ Orchestrator)
+        # =========================
         append_message(user_id, "user", user_text)
-        ctx = get_recent_context(user_id)
-        summary = get_summary(user_id)
+        ctx = get_recent_context(user_id)  # คาดหวังรูปแบบ [{"role":"user"/"assistant","content":"..."}]
+        # summary = get_summary(user_id)   # (ยังไม่ใช้ใน orchestrator, เก็บไว้สำหรับอนาคต)
 
         try:
-            reply = process_with_function_calling(
-                user_info,
-                user_text,
-                ctx=ctx,
-                conv_summary=summary,
-            )
+            # Orchestrator จะ:
+            # - ตรวจ intent (lookup vs reasoning)
+            # - ดึง facts จาก utils (aggregator) ตามที่จำเป็น
+            # - เลือก GPT/Gemini อัตโนมัติ + Fallback
+            result = orchestrate(user_text, context=ctx)
+            reply = result.get("text", "") or "ขออภัยครับ ผมยังตอบไม่ได้ในตอนนี้"
+            meta = result.get("meta", {})
+            # Debug meta (optional): ดูว่า route ไปที่ใคร และมี fallback ไหม
+            try:
+                print("[ORCH META]", meta)
+            except Exception:
+                pass
+
         except Exception:
+            # ถ้า orchestrator มีปัญหา ใช้ engine เดิมเป็น fallback ขั้นสุดท้าย
             traceback.print_exc()
-            reply = "ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล"
+            try:
+                reply = process_with_function_calling(
+                    user_info,
+                    user_text,
+                    ctx=ctx,
+                    conv_summary=get_summary(user_id),
+                )
+            except Exception:
+                traceback.print_exc()
+                reply = "ขออภัยครับ ผมเจอปัญหาบางอย่างในการประมวลผล"
 
         # ส่งข้อความแบบปลอดภัย (กันเกิน 4096 ตัวอักษร)
         for chunk in _chunk_text(reply):
