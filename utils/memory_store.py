@@ -4,38 +4,48 @@
 Persistent Memory Store using SQLite (Master Version, hardened+)
 - โปรไฟล์ผู้ใช้ (สถานะ, role, location) + ประวัติสนทนา/สรุป
 - รีวิว รายการโปรด FAQ ใบลา
-- เสถียรขึ้น: WAL, foreign_keys, busy_timeout, backfill ค่า, validate status/role
-- Super Admin: รองรับทั้ง SUPER_ADMIN_IDS และ fallback ไป SUPER_ADMIN_ID
-- ลบข้อความแบบ chunk ในการสรุป กันชนลิมิต 999 placeholders
+- เสถียร: WAL, foreign_keys, busy_timeout, retry on locked, UPSERT users
+- Backward-compatible กับโค้ดเดิมและ handler ที่มีอยู่
 """
 
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
 import os
 import sqlite3
 import datetime
+import time
+import math
 
 # --------------------- Config ---------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "..", "data")
 DB_PATH = os.path.join(DATA_DIR, os.getenv("BOT_MEMORY_DB_FILE", "bot_memory.db"))
 
-MAX_HISTORY_ITEMS = int(os.getenv("MEMORY_MAX_HISTORY_ITEMS", "40"))
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Context / History caps
+MAX_HISTORY_ITEMS   = int(os.getenv("MEMORY_MAX_HISTORY_ITEMS", "40"))
 KEEP_TAIL_AFTER_SUM = int(os.getenv("MEMORY_KEEP_TAIL_AFTER_SUM", "8"))
-CTX_MAX_ITEMS = int(os.getenv("MEMORY_CTX_MAX_ITEMS", "12"))
-CTX_MAX_CHARS = int(os.getenv("MEMORY_CTX_MAX_CHARS", "6000"))
+CTX_MAX_ITEMS       = int(os.getenv("MEMORY_CTX_MAX_ITEMS", "12"))
+CTX_MAX_CHARS       = int(os.getenv("MEMORY_CTX_MAX_CHARS", "6000"))
+MAX_MESSAGE_CHARS   = int(os.getenv("MEMORY_MAX_MESSAGE_CHARS", "4000"))   # cap ต่อข้อความที่บันทึก
+SUMMARIZE_MAX_CHARS = int(os.getenv("MEMORY_SUMMARIZE_MAX_CHARS", "12000"))
 
 # allowed values
 _ALLOWED_STATUS = {"pending", "approved", "removed"}
-_ALLOWED_ROLES = {"employee", "admin", "super_admin"}
+_ALLOWED_ROLES  = {"employee", "admin", "super_admin"}
 
-os.makedirs(DATA_DIR, exist_ok=True)
+# message roles สำหรับตาราง messages
+_MSG_ROLES = {"user", "assistant", "system"}
 
+# retry settings
+SQLITE_LOCK_RETRY = int(os.getenv("SQLITE_LOCK_RETRY", "1"))
+SQLITE_LOCK_SLEEP = float(os.getenv("SQLITE_LOCK_SLEEP", "0.15"))
 
 def _parse_super_admin_ids() -> set[int]:
     """
-    รองรับได้ทั้ง:
-      SUPER_ADMIN_IDS="604990227,123456789" (หรือคั่นด้วย ; ก็ได้)
+    รองรับ:
+      SUPER_ADMIN_IDS="604990227,123456789" (หรือ ;)
       SUPER_ADMIN_ID="604990227" (legacy)
     """
     ids: set[int] = set()
@@ -57,11 +67,52 @@ def _parse_super_admin_ids() -> set[int]:
             pass
     return ids
 
-
 SUPER_ADMIN_IDS: set[int] = _parse_super_admin_ids()
 
 # --------------------- DB helpers ---------------------
 
+def _ts_now() -> int:
+    return int(time.time())
+
+def _norm_role(role: str) -> str:
+    r = (role or "").strip().lower()
+    return r if r in _MSG_ROLES else "user"
+
+def _norm_text(s: str, max_len: int = MAX_MESSAGE_CHARS) -> str:
+    if s is None:
+        return ""
+    s = str(s).replace("\x00", "")  # กัน null byte
+    if len(s) > max_len:
+        return s[:max_len]
+    return s
+
+def _execute_retry(conn: sqlite3.Connection, sql: str, params: Tuple | List | None = None):
+    """
+    เรียก execute พร้อม retry เบา ๆ เฉพาะกรณี database is locked
+    """
+    params = params or ()
+    tries = SQLITE_LOCK_RETRY + 1
+    for i in range(tries):
+        try:
+            return conn.execute(sql, params)
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "locked" in msg and i < tries - 1:
+                time.sleep(SQLITE_LOCK_SLEEP)
+                continue
+            raise
+
+def _executemany_retry(conn: sqlite3.Connection, sql: str, seq_params: List[Tuple]):
+    tries = SQLITE_LOCK_RETRY + 1
+    for i in range(tries):
+        try:
+            return conn.executemany(sql, seq_params)
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "locked" in msg and i < tries - 1:
+                time.sleep(SQLITE_LOCK_SLEEP)
+                continue
+            raise
 
 def _get_db_connection() -> sqlite3.Connection:
     """Create a SQLite connection with sane PRAGMAs for server use."""
@@ -72,21 +123,51 @@ def _get_db_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA busy_timeout=5000;")  # milliseconds
+    # เพิ่มเติมเล็กน้อยเพื่อประสิทธิภาพ (ไม่บังคับทุกเวอร์ชัน)
+    try:
+        conn.execute("PRAGMA temp_store=MEMORY;")
+        conn.execute("PRAGMA mmap_size=134217728;")  # 128MB ถ้ารองรับ
+    except Exception:
+        pass
     return conn
 
+# ให้ app.py ใช้ใน /healthz
+__all__ = [
+    "_get_db_connection",
+    "init_db",
+    "get_or_create_user",
+    "get_user_by_id",
+    "get_all_users",
+    "update_user_status",
+    "set_user_status",
+    "update_user_role",
+    "update_user_location",
+    "append_message",
+    "get_recent_context",
+    "get_user_chat_history",
+    "get_summary",
+    "set_summary",
+    "prune_and_maybe_summarize",
+    "add_review",
+    "get_last_review_timestamp",
+    "add_favorite",
+    "get_favorites_by_user",
+    "remove_favorite_by_id",
+    "add_or_update_faq",
+    "get_faq_answer",
+    "get_all_faqs",
+    "add_leave_request",
+    "is_super_admin",
+]
 
-def _add_column_if_not_exists(
-    cursor: sqlite3.Cursor, table: str, column: str, col_type: str, default_val: str = "NULL"
-) -> None:
+def _add_column_if_not_exists(cursor: sqlite3.Cursor, table: str, column: str, col_type: str, default_val: str = "NULL") -> None:
     cursor.execute(f"PRAGMA table_info({table})")
     columns = [row["name"] for row in cursor.fetchall()]
     if column not in columns:
         print(f"[Memory] Upgrading table '{table}', adding column '{column}'...")
         cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type} DEFAULT {default_val}")
 
-
 # --------------------- Initialization ---------------------
-
 
 def init_db() -> None:
     """Create/upgrade schema; safe to call multiple times."""
@@ -98,7 +179,7 @@ def init_db() -> None:
             c.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id   INTEGER PRIMARY KEY,
+                    user_id    INTEGER PRIMARY KEY,
                     first_name TEXT,
                     last_name  TEXT,
                     username   TEXT,
@@ -115,14 +196,12 @@ def init_db() -> None:
             c.execute("CREATE INDEX IF NOT EXISTS idx_users_status ON users (status)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users (last_seen)")
 
-            # Backfill ค่าที่ว่าง/ผิดรูปแบบให้เป็นดีฟอลต์ (กันของเก่าพัง)
-            # Status
+            # Backfill status/role ให้ถูกเซ็ต
             placeholders = ",".join("?" for _ in _ALLOWED_STATUS)
             c.execute(
                 f"UPDATE users SET status='pending' WHERE status IS NULL OR status NOT IN ({placeholders})",
                 tuple(_ALLOWED_STATUS),
             )
-            # Role
             placeholders_role = ",".join("?" for _ in _ALLOWED_ROLES)
             c.execute(
                 f"UPDATE users SET role='employee' WHERE role IS NULL OR role NOT IN ({placeholders_role})",
@@ -142,9 +221,8 @@ def init_db() -> None:
                 )
                 """
             )
-            c.execute(
-                "CREATE INDEX IF NOT EXISTS idx_messages_user_id_timestamp ON messages (user_id, timestamp)"
-            )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_time ON messages (user_id, timestamp)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages (user_id)")
 
             # Table: reviews
             c.execute(
@@ -159,6 +237,7 @@ def init_db() -> None:
                 )
                 """
             )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews (user_id, timestamp)")
 
             # Table: favorites
             c.execute(
@@ -172,6 +251,7 @@ def init_db() -> None:
                 )
                 """
             )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites (user_id, timestamp)")
 
             # Table: faq
             c.execute(
@@ -185,6 +265,7 @@ def init_db() -> None:
                 )
                 """
             )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_faq_keyword ON faq (keyword)")
 
             # Table: leave_requests
             c.execute(
@@ -202,72 +283,68 @@ def init_db() -> None:
                 )
                 """
             )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_leave_user ON leave_requests (user_id, timestamp)")
 
             conn.commit()
             print("[Memory] Database initialized (WAL mode, indices, backfill ok).")
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
-
 # เรียก init_db เมื่อโมดูลถูกโหลด ( idempotent )
 init_db()
 
 # --------------------- User Profile / Status / Location ---------------------
 
-
 def is_super_admin(user_id: int) -> bool:
     return int(user_id) in SUPER_ADMIN_IDS
 
-
 def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    ดึงโปรไฟล์ผู้ใช้จาก DB; ถ้าไม่มีจะสร้างใหม่
+    ดึงโปรไฟล์; ถ้าไม่มีจะสร้างใหม่
     - ผู้ใช้ใหม่ default: status='pending', role='employee'
-    - ถ้า user_id อยู่ใน SUPER_ADMIN_IDS: สร้างเป็น status='approved', role='super_admin'
-      (และรีเทิร์น status รายงานเป็น 'returning_user' เพื่อไม่ให้ main_handler บล็อก)
+    - ถ้าอยู่ใน SUPER_ADMIN_IDS: default status='approved', role='super_admin' (และ report เป็น returning_user)
+    - ใช้ UPSERT ป้องกัน race
     """
     try:
-        user_id = int(user_data["id"])
+        user_id    = int(user_data["id"])
         first_name = user_data.get("first_name", "") or ""
-        last_name = user_data.get("last_name", "") or ""
-        username = user_data.get("username", "") or ""
-        now_iso = datetime.datetime.now().isoformat()
+        last_name  = user_data.get("last_name", "") or ""
+        username   = user_data.get("username", "") or ""
+        now_iso    = datetime.datetime.now().isoformat()
+
+        if is_super_admin(user_id):
+            default_status = "approved"
+            default_role   = "super_admin"
+            status_report  = "returning_user"
+        else:
+            default_status = "pending"
+            default_role   = "employee"
+            status_report  = "new_user_pending"
 
         with _get_db_connection() as conn:
-            c = conn.cursor()
-            row = c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-
-            if row is None:
-                if is_super_admin(user_id):
-                    default_status = "approved"
-                    default_role = "super_admin"
-                    status_report = "returning_user"  # เพื่อไม่ให้โดนขั้น new_user_pending บล็อก
-                else:
-                    default_status = "pending"
-                    default_role = "employee"
-                    status_report = "new_user_pending"
-
-                c.execute(
-                    """
-                    INSERT INTO users
-                    (user_id, first_name, last_name, username, first_seen, last_seen, status, role)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (user_id, first_name, last_name, username, now_iso, now_iso, default_status, default_role),
-                )
-                conn.commit()
-            else:
-                c.execute(
-                    "UPDATE users SET last_seen = ?, first_name = ?, last_name = ?, username = ? WHERE user_id = ?",
-                    (now_iso, first_name, last_name, username, user_id),
-                )
-                conn.commit()
-                status_report = "returning_user"
-
-            profile = dict(
-                c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()  # type: ignore
+            # ถ้ายังไม่มี -> insert; ถ้ามี -> update เฉพาะ metadata
+            _execute_retry(conn,
+                """
+                INSERT INTO users (user_id, first_name, last_name, username, first_seen, last_seen, status, role)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    first_name=excluded.first_name,
+                    last_name =excluded.last_name,
+                    username  =excluded.username,
+                    last_seen =excluded.last_seen
+                """,
+                (user_id, first_name, last_name, username, now_iso, now_iso, default_status, default_role),
             )
-            return {"status": status_report, "profile": profile}
+            conn.commit()
+
+            row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            profile = dict(row) if row else None
+
+        # ถ้าเป็นผู้ใช้เก่าอยู่แล้ว ให้ปรับ report เป็น returning_user
+        if profile and profile.get("first_seen") != now_iso:
+            status_report = "returning_user"
+
+        return {"status": status_report, "profile": profile} if profile else None
 
     except KeyError as e:
         print(f"[Memory] Key error processing user_data: {e}. Data received: {user_data}")
@@ -276,7 +353,6 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         print(f"[Memory] DB error in get_or_create_user: {e}")
         return None
 
-
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     try:
         with _get_db_connection() as conn:
@@ -284,7 +360,6 @@ def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
             return dict(row) if row else None
     except sqlite3.Error:
         return None
-
 
 def get_all_users() -> List[Dict[str, Any]]:
     try:
@@ -298,73 +373,68 @@ def get_all_users() -> List[Dict[str, Any]]:
     except sqlite3.Error:
         return []
 
-
 def update_user_status(user_id: int, status: str) -> bool:
-    """อัปเดตสถานะโดยตรวจสอบค่าที่อนุญาตก่อน"""
     status = (status or "").strip().lower()
     if status not in _ALLOWED_STATUS:
         print(f"[Memory] Reject invalid status '{status}' for user {user_id}")
         return False
     try:
         with _get_db_connection() as conn:
-            res = conn.execute("UPDATE users SET status = ? WHERE user_id = ?", (status, user_id))
+            res = _execute_retry(conn, "UPDATE users SET status = ? WHERE user_id = ?", (status, user_id))
             conn.commit()
-            return res.rowcount > 0
+            return (res.rowcount if res else 0) > 0
     except sqlite3.Error:
         return False
 
-
-# alias สำหรับโค้ดเดิม
+# alias เดิม
 def set_user_status(user_id: int, status: str) -> bool:
     return update_user_status(user_id, status)
 
-
 def update_user_role(user_id: int, role: str) -> bool:
-    """อัปเดตบทบาทโดยตรวจสอบค่าที่อนุญาตก่อน"""
     role = (role or "").strip().lower()
     if role not in _ALLOWED_ROLES:
         print(f"[Memory] Reject invalid role '{role}' for user {user_id}")
         return False
     try:
         with _get_db_connection() as conn:
-            res = conn.execute("UPDATE users SET role = ? WHERE user_id = ?", (role, user_id))
+            res = _execute_retry(conn, "UPDATE users SET role = ? WHERE user_id = ?", (role, user_id))
             conn.commit()
-            return res.rowcount > 0
+            return (res.rowcount if res else 0) > 0
     except sqlite3.Error:
         return False
-
 
 def update_user_location(user_id: int, lat: float, lon: float) -> bool:
     try:
         with _get_db_connection() as conn:
-            conn.execute(
-                "UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id)
-            )
+            _execute_retry(conn, "UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id))
             conn.commit()
             return True
     except sqlite3.Error:
         return False
 
-
 # --------------------- Chat History & Context ---------------------
 
-
 def append_message(user_id: int, role: str, content: str) -> None:
+    """
+    บันทึกข้อความ โดย normalize role และ cap ความยาว content
+    """
     try:
         with _get_db_connection() as conn:
-            ts = int(datetime.datetime.now().timestamp())
-            conn.execute(
+            ts = _ts_now()
+            _execute_retry(
+                conn,
                 "INSERT INTO messages (user_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (user_id, role, (content or "").strip(), ts),
+                (user_id, _norm_role(role), _norm_text(content), ts),
             )
             conn.commit()
     except sqlite3.Error as e:
         print(f"[Memory] DB error appending message: {e}")
 
-
-def get_recent_context(
-    user_id: int, max_items: int = CTX_MAX_ITEMS, max_chars: int = CTX_MAX_CHARS
-) -> List[Dict[str, str]]:
+def get_recent_context(user_id: int, max_items: int = CTX_MAX_ITEMS, max_chars: int = CTX_MAX_CHARS) -> List[Dict[str, str]]:
+    """
+    คืนค่า messages ล่าสุด (role/content) สำหรับ LLM
+    - จำกัดจำนวนชิ้น และจำนวนตัวอักษรรวม
+    """
     try:
         with _get_db_connection() as conn:
             rows = conn.execute(
@@ -375,14 +445,15 @@ def get_recent_context(
             total = 0
             for r in rows:
                 content = r["content"] or ""
-                total += len(content)
-                if total > max_chars:
+                # รวมจากท้ายกลับไปต้น (เราดึง DESC)
+                if total + len(content) > max_chars and out:
                     break
                 out.append({"role": r["role"], "content": content})
-            return list(reversed(out))
+                total += len(content)
+            out.reverse()
+            return out
     except sqlite3.Error:
         return []
-
 
 def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
     try:
@@ -400,9 +471,34 @@ def get_user_chat_history(user_id: int, limit: int = 10) -> List[Dict[str, Any]]
         print(f"[Memory] DB error getting user chat history: {e}")
         return []
 
+def count_messages(user_id: int) -> int:
+    try:
+        with _get_db_connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM messages WHERE user_id = ?", (user_id,)).fetchone()
+            return int(row["c"]) if row else 0
+    except sqlite3.Error:
+        return 0
+
+def delete_messages_by_ids(ids: List[int]) -> int:
+    """
+    ลบข้อความตาม message_id เป็นชุด (คืนจำนวนที่ลบได้)
+    """
+    if not ids:
+        return 0
+    try:
+        with _get_db_connection() as conn:
+            deleted = 0
+            CHUNK = 500
+            for i in range(0, len(ids), CHUNK):
+                sub = ids[i:i+CHUNK]
+                res = _execute_retry(conn, f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in sub)})", tuple(sub))
+                deleted += (res.rowcount if res else 0)
+            conn.commit()
+            return deleted
+    except sqlite3.Error:
+        return 0
 
 # --------------------- Summarization ---------------------
-
 
 def get_summary(user_id: int) -> str:
     try:
@@ -412,17 +508,21 @@ def get_summary(user_id: int) -> str:
     except sqlite3.Error:
         return ""
 
-
 def set_summary(user_id: int, summary: str) -> None:
     try:
         with _get_db_connection() as conn:
-            conn.execute("UPDATE users SET summary = ? WHERE user_id = ?", ((summary or "").strip(), user_id))
+            _execute_retry(conn, "UPDATE users SET summary = ? WHERE user_id = ?", (_norm_text(summary, 20000), user_id))
             conn.commit()
     except sqlite3.Error:
         pass
 
-
 def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]) -> None:
+    """
+    - ถ้าจำนวนข้อความเกิน MAX_HISTORY_ITEMS → รวบรวมส่วนต้น (เก่า) เพื่อสรุป
+    - แนบสรุปเดิม + ข้อความใหม่ แล้วเรียก summarize_func
+    - ลบข้อความเก่าที่ถูกสรุปออก เหลือท้ายไว้ KEEP_TAIL_AFTER_SUM
+    - จำกัดขนาดอินพุตที่ส่งให้ summarize_func ด้วย SUMMARIZE_MAX_CHARS
+    """
     try:
         with _get_db_connection() as conn:
             msg_count = conn.execute("SELECT COUNT(*) FROM messages WHERE user_id = ?", (user_id,)).fetchone()[0]
@@ -437,10 +537,27 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
             if not part:
                 return
 
-            text = "\n".join(f"[{m['role']}] {m['content']}" for m in part)
+            # รวมข้อความที่จะสรุป + cap ขนาด
+            text_parts: List[str] = []
+            total = 0
+            for m in part:
+                seg = f"[{m['role']}] {m['content']}"
+                if total + len(seg) > SUMMARIZE_MAX_CHARS and text_parts:
+                    break
+                text_parts.append(seg)
+                total += len(seg)
+            text = "\n".join(text_parts)
+
             prev = get_summary(user_id)
-            prompt = f"{('[สรุปเดิม] ' + prev) if prev else ''}\n[เนื้อหาใหม่ที่จะสรุปต่อ] {text}"
-            new_sum = summarize_func(prompt)
+            header = f"[สรุปเดิม] {prev}\n" if prev else ""
+            prompt = f"{header}[เนื้อหาใหม่ที่จะสรุปต่อ]\n{text}"
+
+            # เรียกสรุป (กัน error)
+            try:
+                new_sum = summarize_func(prompt) or prev
+            except Exception:
+                new_sum = prev
+
             set_summary(user_id, new_sum)
 
             # ลบแบบ chunk กันชน 999 placeholders
@@ -448,28 +565,26 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
             CHUNK = 500
             for i in range(0, len(ids), CHUNK):
                 sub = ids[i : i + CHUNK]
-                conn.execute(f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in sub)})", sub)
+                _execute_retry(conn, f"DELETE FROM messages WHERE message_id IN ({','.join('?' for _ in sub)})", tuple(sub))
             conn.commit()
     except sqlite3.Error:
         pass
 
-
 # --------------------- Reviews ---------------------
-
 
 def add_review(user_id: int, rating: int, comment: Optional[str] = None) -> bool:
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            conn.execute(
+            _execute_retry(
+                conn,
                 "INSERT INTO reviews (user_id, rating, comment, timestamp) VALUES (?, ?, ?, ?)",
-                (user_id, rating, comment, now_iso),
+                (user_id, int(rating), _norm_text(comment, 2000), now_iso),
             )
             conn.commit()
             return True
     except sqlite3.Error:
         return False
-
 
 def get_last_review_timestamp(user_id: int) -> Optional[str]:
     try:
@@ -481,23 +596,21 @@ def get_last_review_timestamp(user_id: int) -> Optional[str]:
     except sqlite3.Error:
         return None
 
-
 # --------------------- Favorites ---------------------
-
 
 def add_favorite(user_id: int, content: str) -> bool:
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            conn.execute(
+            _execute_retry(
+                conn,
                 "INSERT INTO favorites (user_id, content, timestamp) VALUES (?, ?, ?)",
-                (user_id, content, now_iso),
+                (user_id, _norm_text(content, 4000), now_iso),
             )
             conn.commit()
             return True
     except sqlite3.Error:
         return False
-
 
 def get_favorites_by_user(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
     try:
@@ -512,27 +625,27 @@ def get_favorites_by_user(user_id: int, limit: int = 10) -> List[Dict[str, Any]]
     except sqlite3.Error:
         return []
 
-
 def remove_favorite_by_id(favorite_id: int, user_id: int) -> bool:
     try:
         with _get_db_connection() as conn:
-            res = conn.execute(
-                "DELETE FROM favorites WHERE favorite_id = ? AND user_id = ?", (favorite_id, user_id)
+            res = _execute_retry(
+                conn,
+                "DELETE FROM favorites WHERE favorite_id = ? AND user_id = ?",
+                (favorite_id, user_id),
             )
             conn.commit()
-            return res.rowcount > 0
+            return (res.rowcount if res else 0) > 0
     except sqlite3.Error:
         return False
 
-
 # --------------------- FAQ ---------------------
-
 
 def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            conn.execute(
+            _execute_retry(
+                conn,
                 """
                 INSERT INTO faq (keyword, answer, added_by, timestamp)
                 VALUES (?, ?, ?, ?)
@@ -541,7 +654,7 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
                     added_by  = excluded.added_by,
                     timestamp = excluded.timestamp
                 """,
-                (keyword.lower(), answer, user_id, now_iso),
+                ((keyword or "").lower(), _norm_text(answer, 8000), user_id, now_iso),
             )
             conn.commit()
             return True
@@ -549,41 +662,39 @@ def add_or_update_faq(keyword: str, answer: str, user_id: int) -> bool:
         print(f"[Memory] DB error adding/updating FAQ: {e}")
         return False
 
-
 def get_faq_answer(keyword: str) -> Optional[str]:
     try:
         with _get_db_connection() as conn:
-            res = conn.execute("SELECT answer FROM faq WHERE keyword = ?", (keyword.lower(),)).fetchone()
+            res = conn.execute("SELECT answer FROM faq WHERE keyword = ?", ((keyword or "").lower(),)).fetchone()
             return res["answer"] if res else None
     except sqlite3.Error as e:
         print(f"[Memory] DB error getting FAQ answer: {e}")
         return None
 
-
 def get_all_faqs() -> List[Dict[str, Any]]:
     try:
         with _get_db_connection() as conn:
             return [
-                dict(row) for row in conn.execute("SELECT keyword, answer FROM faq ORDER BY keyword ASC").fetchall()
+                dict(row)
+                for row in conn.execute("SELECT keyword, answer FROM faq ORDER BY keyword ASC").fetchall()
             ]
     except sqlite3.Error as e:
         print(f"[Memory] DB error getting all FAQs: {e}")
         return []
 
-
 # --------------------- Leave Requests ---------------------
-
 
 def add_leave_request(user_id: int, leave_type: str, start_date: str, end_date: str, reason: str) -> bool:
     try:
         with _get_db_connection() as conn:
             now_iso = datetime.datetime.now().isoformat()
-            conn.execute(
+            _execute_retry(
+                conn,
                 """
                 INSERT INTO leave_requests (user_id, leave_type, start_date, end_date, reason, timestamp)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, leave_type, start_date, end_date, reason, now_iso),
+                (user_id, _norm_text(leave_type, 64), _norm_text(start_date, 32), _norm_text(end_date, 32), _norm_text(reason, 2000), now_iso),
             )
             conn.commit()
             return True
