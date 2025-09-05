@@ -1,3 +1,4 @@
+# app.py (หรือ main.py)
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -12,6 +13,27 @@ from flask import Flask, request, jsonify, abort
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 
+# --- Config (ศูนย์กลางทั้งหมด) ---
+from config import (
+    TELEGRAM_SECRET_TOKEN,
+    MAX_PAYLOAD_BYTES,
+    MAX_DECOMPRESSED_BYTES,
+    ENABLE_BACKUP_SCHEDULER,
+    TRUST_PROXY_HEADERS,
+    LOG_JSON,
+    OPENAI_KEY_SET,
+    GOOGLE_KEY_SET,
+    ROUTER_MODE,
+    ROUTER_MIN_CONFIDENCE,
+    OPENAI_MODEL_DIALOGUE,
+    GEMINI_MODEL_DIALOGUE,
+    GIT_SHA,
+    BUILD_TIME,
+    diag as config_diag,
+    missing_required,
+    missing_recommended,
+)
+
 # --- DB / Handlers / Settings ---
 from utils.memory_store import init_db, _get_db_connection  # _get_db_connection ใช้ใน /healthz เชิงลึก
 from handlers.main_handler import handle_message
@@ -23,25 +45,7 @@ except Exception:
 
 app = Flask(__name__)
 
-# ---- Config / Env ----
-TELEGRAM_SECRET_TOKEN = os.getenv("TELEGRAM_SECRET_TOKEN", "").strip()
-MAX_PAYLOAD_BYTES = int(os.getenv("MAX_PAYLOAD_BYTES", "10485760"))  # 10 MB
-MAX_DECOMPRESSED_BYTES = int(os.getenv("MAX_DECOMPRESSED_BYTES", "20971520"))  # 20 MB ป้องกัน zip bomb
-ENABLE_BACKUP_SCHEDULER = os.getenv("ENABLE_BACKUP_SCHEDULER", "1") == "1"
-TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "1") == "1"
-LOG_JSON = os.getenv("LOG_JSON", "0") == "1"
-
-# Orchestrator-related (อ่านตรง ENV โดยไม่ import ใน route เพื่อลด dependency)
-OPENAI_KEY_SET = bool(os.getenv("OPENAI_API_KEY"))
-GOOGLE_KEY_SET = bool(os.getenv("GOOGLE_API_KEY"))
-ROUTER_MODE = os.getenv("ROUTER_MODE", "hybrid")
-ROUTER_MIN_CONFIDENCE = float(os.getenv("ROUTER_MIN_CONFIDENCE", "0.55"))
-OPENAI_MODEL = os.getenv("OPENAI_MODEL_DIALOGUE", "gpt-4o")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL_DIALOGUE", "gemini-1.5-pro")
-
-GIT_SHA = os.getenv("GIT_SHA", "")
-BUILD_TIME = os.getenv("BUILD_TIME", "")
-
+# ---- Proxy / Trust headers ----
 if TRUST_PROXY_HEADERS:
     # ให้ Flask รู้จัก X-Forwarded-* จาก Render/Reverse proxy
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -167,8 +171,8 @@ def version():
         "git_sha": GIT_SHA or None,
         "build_time": BUILD_TIME or None,
         "models": {
-            "openai_model": OPENAI_MODEL,
-            "gemini_model": GEMINI_MODEL,
+            "openai_model": OPENAI_MODEL_DIALOGUE,
+            "gemini_model": GEMINI_MODEL_DIALOGUE,
         },
         "router": {
             "mode": ROUTER_MODE,
@@ -197,12 +201,16 @@ def readyz():
         "openai_key_set": OPENAI_KEY_SET,
         "google_key_set": GOOGLE_KEY_SET,
         "router_mode": ROUTER_MODE,
+        "missing_required": missing_required(),
+        "missing_recommended": missing_recommended(),
     }
     try:
         with _get_db_connection() as conn:
             conn.execute("SELECT 1")
     except Exception as e:
         checks["db"] = f"error: {e}"
+
+    # ถ้า DB ไม่โอเค → 503; อย่างอื่นค่อยไปดูที่ /diag
     code = 200 if checks["db"] == "ok" else 503
     return jsonify(checks), code
 
@@ -210,48 +218,29 @@ def readyz():
 def diag():
     """
     Deep diagnostics:
-    - ตรวจว่ามี orchestrator และฟังก์ชันสำคัญของ utils ให้ aggregator เรียกได้ไหม
-    - ไม่เรียก API ภายนอก เพียงแค่ตรวจการ import/มีฟังก์ชันหรือไม่
+    - ใช้ config.diag() เป็นหลัก (มาตรฐานเดียว)
+    - เช็ก import orchestrator/providers เพิ่มเติม (ไม่เรียก API ภายนอก)
     """
-    out = {"orchestrator": {}, "utils": {}, "env": {}}
+    payload = config_diag()
 
-    # Orchestrator presence
+    imports = {}
     try:
-        import orchestrator.orchestrate as _orch
-        out["orchestrator"]["import"] = True
-        out["orchestrator"]["module"] = getattr(_orch, "__name__", "orchestrator.orchestrate")
+        import orchestrator  # noqa: F401
+        imports["orchestrator"] = True
     except Exception as e:
-        out["orchestrator"]["import"] = False
-        out["orchestrator"]["error"] = str(e)
+        imports["orchestrator"] = False
+        imports["orchestrator_error"] = str(e)
+    try:
+        import providers  # noqa: F401
+        imports["providers"] = True
+    except Exception as e:
+        imports["providers"] = False
+        imports["providers_error"] = str(e)
 
-    # Utils presence (ตามที่ aggregator ใช้ชื่อไว้)
-    def _has(path: str, fname: str) -> bool:
-        try:
-            mod = __import__(path, fromlist=[fname])
-            return hasattr(mod, fname)
-        except Exception:
-            return False
-
-    out["utils"] = {
-        "weather_utils.get_weather_forecast": _has("utils.weather_utils", "get_weather_forecast"),
-        "gold_utils.get_gold_price": _has("utils.gold_utils", "get_gold_price"),
-        "finance_utils.get_oil_price_from_google": _has("utils.finance_utils", "get_oil_price_from_google"),
-        "finance_utils.get_stock_info_from_google": _has("utils.finance_utils", "get_stock_info_from_google"),
-        "finance_utils.get_crypto_price_from_google": _has("utils.finance_utils", "get_crypto_price_from_google"),
-        "news_utils.get_news OR search_utils.get_news": (
-            _has("utils.news_utils", "get_news") or _has("utils.search_utils", "get_news")
-        )
-    }
-
-    out["env"] = {
-        "openai_key_set": OPENAI_KEY_SET,
-        "google_key_set": GOOGLE_KEY_SET,
-        "openai_model": OPENAI_MODEL,
-        "gemini_model": GEMINI_MODEL,
-        "router_mode": ROUTER_MODE,
-        "router_min_confidence": ROUTER_MIN_CONFIDENCE,
-    }
-    return jsonify(out), 200
+    payload["imports"] = imports
+    payload["missing_required"] = missing_required()
+    payload["missing_recommended"] = missing_recommended()
+    return jsonify(payload), 200
 
 @app.get("/ping")
 def ping():
