@@ -2,22 +2,22 @@
 # -*- coding: utf-8 -*-
 """
 Function Calling Engine (Gemini, ChatSession)
-- ใช้ Gemini v1 + ChatSession เพื่อสนทนาแบบหลายเทิร์น (มีบริบทต่อเนื่อง)
-- รองรับฟังก์ชัน (tools) ที่บอทเรียกใช้ข้อมูลสด: weather/gold/news/stock/oil/lottery/crypto
+- สนทนาแบบหลายเทิร์น (มีบริบทต่อเนื่อง) ด้วย Gemini v1
+- รองรับเครื่องมือเรียกข้อมูลสด: weather/gold/news/stock/oil/lottery/crypto
 - API:
     process_with_function_calling(user_info, user_text, ctx=None, conv_summary=None)
     summarize_text_with_gpt(text)
 """
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import os
 import time
 from threading import RLock
 
 import google.generativeai as genai
 
-# Gemini helpers
-from utils.gemini_client import MODEL_PRO, generate_text  # noqa: F401  (MODEL_PRO เผื่อใช้ต่อยอด)
+# ใช้เฉพาะฟังก์ชันที่ต้องใช้จริง เพื่อกัน ImportError
+from utils.gemini_client import generate_text
 
 # ---------- Tool functions ----------
 from utils.weather_utils import get_weather_forecast
@@ -66,8 +66,9 @@ TOOL_CONFIG = {
 
 # ---------- Model with tools & system ----------
 try:
+    # SDK 0.8.x ใช้พารามิเตอร์ชื่อ "model"
     gemini_model_with_tools = genai.GenerativeModel(
-        model_name="gemini-1.5-flash-latest",
+        model="gemini-1.5-flash-latest",
         tools=[TOOL_CONFIG],  # list ของ tool blocks
         system_instruction=SYSTEM_PROMPT,
     )
@@ -166,14 +167,10 @@ def _send_function_response(chat: Any, name: str, tool_result: str):
     - ถ้าไม่สำเร็จ ตกลงมาใช้ dict {"function_response": {...}}
     """
     try:
-        # บางเวอร์ชันของ SDK มี genai.types.FunctionResponse
         payload = genai.types.FunctionResponse(name=name, response={"result": tool_result})
         return chat.send_message(part=payload)
     except Exception:
-        # รูปแบบที่เสถียรกว่า (ไม่ผูกกับ type)
-        return chat.send_message(
-            {"function_response": {"name": name, "response": {"result": tool_result}}}
-        )
+        return chat.send_message({"function_response": {"name": name, "response": {"result": tool_result}}})
 
 # ---------- Public API ----------
 def process_with_function_calling(
@@ -192,23 +189,23 @@ def process_with_function_calling(
     except Exception:
         return "ชิบะน้อยงง user_id นิดหน่อยครับ ลองใหม่อีกทีนะ"
 
-    # /reset แบบง่าย ๆ เคลียร์บริบทเฉพาะผู้ใช้
+    # /reset → ล้างบริบทของผู้ใช้
     if user_text.strip().lower() in {"/reset", "รีเซ็ต", "เริ่มใหม่"}:
         _clear_session(user_id)
         return "โอเค! เคลียร์บริบทให้แล้วครับ เริ่มคุยใหม่ได้เลย"
 
     chat = _ensure_session(user_id, ctx, conv_summary)
 
-    # 1) ส่งข้อความปัจจุบัน
     try:
+        # 1) ส่งข้อความปัจจุบัน
         resp = chat.send_message(user_text)
 
+        # ถ้าไม่มี parts เลย ให้ส่งข้อความธรรมดา
         if not getattr(resp, "parts", None):
             return (getattr(resp, "text", "") or "").strip() or "ขอโทษครับ ผมยังตอบไม่ได้ในตอนนี้ ลองใหม่อีกครั้งนะครับ"
 
         # 2) หา function_call ถ้ามี
         fpart = next((p for p in resp.parts if getattr(p, "function_call", None)), None)
-
         if fpart is None:
             return (resp.text or "").strip() or "ขอโทษครับ ผมยังตอบไม่ได้ในตอนนี้ ลองใหม่อีกครั้งนะครับ"
 
@@ -228,7 +225,7 @@ def process_with_function_calling(
         tool_result = _dispatch_tool(user_info, fname, fargs)
         tool_result = _clip(tool_result)
 
-        # 4) feed คำตอบของ tool กลับเข้า session เดิม (รองรับได้หลาย SDK)
+        # 4) ส่ง FunctionResponse กลับเข้า session
         resp2 = _send_function_response(chat, fname, tool_result)
 
         return (getattr(resp2, "text", "") or "").strip() or tool_result
