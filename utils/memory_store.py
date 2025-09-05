@@ -6,6 +6,7 @@ Persistent Memory Store using SQLite (Master Version, hardened+)
 - รีวิว รายการโปรด FAQ ใบลา
 - เสถียร: WAL, foreign_keys, busy_timeout, retry on locked, UPSERT users
 - Backward-compatible กับโค้ดเดิมและ handler ที่มีอยู่
+- รองรับ schema migration อัตโนมัติไปเป็น ON DELETE CASCADE บนตารางลูก
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ import os
 import sqlite3
 import datetime
 import time
-import math
 
 # --------------------- Config ---------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -131,6 +131,139 @@ def _get_db_connection() -> sqlite3.Connection:
         pass
     return conn
 
+def _add_column_if_not_exists(cursor: sqlite3.Cursor, table: str, column: str, col_type: str, default_val: str = "NULL") -> None:
+    cursor.execute(f"PRAGMA table_info({table})")
+    columns = [row["name"] for row in cursor.fetchall()]
+    if column not in columns:
+        print(f"[Memory] Upgrading table '{table}', adding column '{column}'...")
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type} DEFAULT {default_val}")
+
+def _fk_has_cascade(conn: sqlite3.Connection, table: str, ref_table: str = "users") -> bool:
+    try:
+        rows = conn.execute(f"PRAGMA foreign_key_list({table})").fetchall()
+        for r in rows:
+            # keys: id, seq, table, from, to, on_update, on_delete, match
+            if (r["table"] == ref_table) and (str(r["on_delete"] or "").upper() == "CASCADE"):
+                return True
+    except Exception:
+        pass
+    return False
+
+def _migrate_table_to_cascade(conn: sqlite3.Connection, table: str, create_sql_new: str, copy_cols: str, idx_sql: List[str]) -> None:
+    """
+    ย้ายตารางเดิมให้กลายเป็น ON DELETE CASCADE
+    - create_sql_new: DDL สำหรับ {table}_new ที่มี FK CASCADE
+    - copy_cols: รายชื่อคอลัมน์ (comma-separated) สำหรับ COPY
+    - idx_sql: รายการ CREATE INDEX ที่ต้องมีหลัง rename
+    """
+    try:
+        print(f"[Memory] Migrating table '{table}' to ON DELETE CASCADE ...")
+        # ปิด FK ชั่วคราวเพื่อหลีกเลี่ยง error ระหว่าง drop/rename
+        conn.execute("PRAGMA foreign_keys=OFF;")
+        conn.execute(create_sql_new)
+        conn.execute(f"INSERT INTO {table}_new ({copy_cols}) SELECT {copy_cols} FROM {table}")
+        conn.execute(f"DROP TABLE {table}")
+        conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
+        for sql in idx_sql:
+            conn.execute(sql)
+        conn.execute("PRAGMA foreign_keys=ON;")
+        conn.commit()
+        print(f"[Memory] Migration '{table}' -> CASCADE completed.")
+    except Exception as e:
+        conn.execute("PRAGMA foreign_keys=ON;")
+        print(f"[Memory] Migration for '{table}' failed: {e}")
+
+def _ensure_child_tables_cascade(conn: sqlite3.Connection) -> None:
+    """
+    ตรวจและ migrate ตารางลูกให้มี ON DELETE CASCADE หากยังไม่มี
+    """
+    # messages
+    if not _fk_has_cascade(conn, "messages"):
+        _migrate_table_to_cascade(
+            conn,
+            table="messages",
+            create_sql_new="""
+                CREATE TABLE IF NOT EXISTS messages_new (
+                    message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL,
+                    role       TEXT NOT NULL,
+                    content    TEXT NOT NULL,
+                    timestamp  INTEGER NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+                )
+            """,
+            copy_cols="message_id, user_id, role, content, timestamp",
+            idx_sql=[
+                "CREATE INDEX IF NOT EXISTS idx_messages_user_time ON messages (user_id, timestamp)",
+                "CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages (user_id)"
+            ],
+        )
+
+    # reviews
+    if not _fk_has_cascade(conn, "reviews"):
+        _migrate_table_to_cascade(
+            conn,
+            table="reviews",
+            create_sql_new="""
+                CREATE TABLE IF NOT EXISTS reviews_new (
+                    review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id   INTEGER NOT NULL,
+                    rating    INTEGER NOT NULL,
+                    comment   TEXT,
+                    timestamp TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+                )
+            """,
+            copy_cols="review_id, user_id, rating, comment, timestamp",
+            idx_sql=[
+                "CREATE INDEX IF NOT EXISTS idx_reviews_user ON reviews (user_id, timestamp)"
+            ],
+        )
+
+    # favorites
+    if not _fk_has_cascade(conn, "favorites"):
+        _migrate_table_to_cascade(
+            conn,
+            table="favorites",
+            create_sql_new="""
+                CREATE TABLE IF NOT EXISTS favorites_new (
+                    favorite_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    content     TEXT NOT NULL,
+                    timestamp   TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+                )
+            """,
+            copy_cols="favorite_id, user_id, content, timestamp",
+            idx_sql=[
+                "CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites (user_id, timestamp)"
+            ],
+        )
+
+    # leave_requests
+    if not _fk_has_cascade(conn, "leave_requests"):
+        _migrate_table_to_cascade(
+            conn,
+            table="leave_requests",
+            create_sql_new="""
+                CREATE TABLE IF NOT EXISTS leave_requests_new (
+                    request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id    INTEGER NOT NULL,
+                    leave_type TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date   TEXT NOT NULL,
+                    reason     TEXT,
+                    status     TEXT DEFAULT 'pending',
+                    timestamp  TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+                )
+            """,
+            copy_cols="request_id, user_id, leave_type, start_date, end_date, reason, status, timestamp",
+            idx_sql=[
+                "CREATE INDEX IF NOT EXISTS idx_leave_user ON leave_requests (user_id, timestamp)"
+            ],
+        )
+
 # ให้ app.py ใช้ใน /healthz
 __all__ = [
     "_get_db_connection",
@@ -157,15 +290,14 @@ __all__ = [
     "get_faq_answer",
     "get_all_faqs",
     "add_leave_request",
+    "update_leave_status",
+    "delete_user",
     "is_super_admin",
+    # shims
+    "add_new_favorite",
+    "get_user_favorites",
+    "remove_user_favorite",
 ]
-
-def _add_column_if_not_exists(cursor: sqlite3.Cursor, table: str, column: str, col_type: str, default_val: str = "NULL") -> None:
-    cursor.execute(f"PRAGMA table_info({table})")
-    columns = [row["name"] for row in cursor.fetchall()]
-    if column not in columns:
-        print(f"[Memory] Upgrading table '{table}', adding column '{column}'...")
-        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type} DEFAULT {default_val}")
 
 # --------------------- Initialization ---------------------
 
@@ -208,7 +340,7 @@ def init_db() -> None:
                 tuple(_ALLOWED_ROLES),
             )
 
-            # Table: messages
+            # Table: messages (fresh schema includes CASCADE)
             c.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -217,7 +349,7 @@ def init_db() -> None:
                     role       TEXT NOT NULL,
                     content    TEXT NOT NULL,
                     timestamp  INTEGER NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
                 )
                 """
             )
@@ -233,7 +365,7 @@ def init_db() -> None:
                     rating    INTEGER NOT NULL,
                     comment   TEXT,
                     timestamp TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
                 )
                 """
             )
@@ -247,13 +379,13 @@ def init_db() -> None:
                     user_id     INTEGER NOT NULL,
                     content     TEXT NOT NULL,
                     timestamp   TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
                 )
                 """
             )
             c.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites (user_id, timestamp)")
 
-            # Table: faq
+            # Table: faq (ไม่ผูก FK เพื่อให้ความรู้ยังอยู่แม้ผู้เพิ่มจะถูกลบ)
             c.execute(
                 """
                 CREATE TABLE IF NOT EXISTS faq (
@@ -279,14 +411,17 @@ def init_db() -> None:
                     reason     TEXT,
                     status     TEXT DEFAULT 'pending',
                     timestamp  TEXT NOT NULL,
-                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                    FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
                 )
                 """
             )
             c.execute("CREATE INDEX IF NOT EXISTS idx_leave_user ON leave_requests (user_id, timestamp)")
 
+            # ตรวจและ migrate ตารางลูกให้เป็น CASCADE ถ้า DB เดิมยังไม่ใช่
+            _ensure_child_tables_cascade(conn)
+
             conn.commit()
-            print("[Memory] Database initialized (WAL mode, indices, backfill ok).")
+            print("[Memory] Database initialized (WAL mode, indices, CASCADE ready).")
     except sqlite3.Error as e:
         print(f"[Memory] Database error during initialization: {e}")
 
@@ -322,7 +457,6 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             status_report  = "new_user_pending"
 
         with _get_db_connection() as conn:
-            # ถ้ายังไม่มี -> insert; ถ้ามี -> update เฉพาะ metadata
             _execute_retry(conn,
                 """
                 INSERT INTO users (user_id, first_name, last_name, username, first_seen, last_seen, status, role)
@@ -340,7 +474,6 @@ def get_or_create_user(user_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
             profile = dict(row) if row else None
 
-        # ถ้าเป็นผู้ใช้เก่าอยู่แล้ว ให้ปรับ report เป็น returning_user
         if profile and profile.get("first_seen") != now_iso:
             status_report = "returning_user"
 
@@ -412,6 +545,19 @@ def update_user_location(user_id: int, lat: float, lon: float) -> bool:
     except sqlite3.Error:
         return False
 
+def delete_user(user_id: int) -> bool:
+    """
+    ลบผู้ใช้ (และข้อมูลลูกทั้งหมดด้วยเพราะ ON DELETE CASCADE)
+    """
+    try:
+        with _get_db_connection() as conn:
+            res = _execute_retry(conn, "DELETE FROM users WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return (res.rowcount if res else 0) > 0
+    except sqlite3.Error as e:
+        print(f"[Memory] Failed to delete user {user_id}: {e}")
+        return False
+
 # --------------------- Chat History & Context ---------------------
 
 def append_message(user_id: int, role: str, content: str) -> None:
@@ -445,7 +591,6 @@ def get_recent_context(user_id: int, max_items: int = CTX_MAX_ITEMS, max_chars: 
             total = 0
             for r in rows:
                 content = r["content"] or ""
-                # รวมจากท้ายกลับไปต้น (เราดึง DESC)
                 if total + len(content) > max_chars and out:
                     break
                 out.append({"role": r["role"], "content": content})
@@ -537,7 +682,6 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
             if not part:
                 return
 
-            # รวมข้อความที่จะสรุป + cap ขนาด
             text_parts: List[str] = []
             total = 0
             for m in part:
@@ -552,7 +696,6 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
             header = f"[สรุปเดิม] {prev}\n" if prev else ""
             prompt = f"{header}[เนื้อหาใหม่ที่จะสรุปต่อ]\n{text}"
 
-            # เรียกสรุป (กัน error)
             try:
                 new_sum = summarize_func(prompt) or prev
             except Exception:
@@ -560,7 +703,6 @@ def prune_and_maybe_summarize(user_id: int, summarize_func: Callable[[str], str]
 
             set_summary(user_id, new_sum)
 
-            # ลบแบบ chunk กันชน 999 placeholders
             ids = [m["message_id"] for m in part]
             CHUNK = 500
             for i in range(0, len(ids), CHUNK):
@@ -700,4 +842,46 @@ def add_leave_request(user_id: int, leave_type: str, start_date: str, end_date: 
             return True
     except sqlite3.Error as e:
         print(f"[Memory] Failed to add leave request for user {user_id}: {e}")
+        return False
+
+def update_leave_status(request_id: int, status: str) -> bool:
+    """
+    อัปเดตสถานะใบลา: pending/approved/rejected (ยอมรับค่าทั่วไปเป็นตัวพิมพ์เล็ก)
+    """
+    status = (status or "").strip().lower()
+    if status not in {"pending", "approved", "rejected"}:
+        print(f"[Memory] Reject invalid leave status '{status}' for request {request_id}")
+        return False
+    try:
+        with _get_db_connection() as conn:
+            res = _execute_retry(conn, "UPDATE leave_requests SET status = ? WHERE request_id = ?", (status, request_id))
+            conn.commit()
+            return (res.rowcount if res else 0) > 0
+    except sqlite3.Error:
+        return False
+
+# ---- Compatibility shims สำหรับ favorites ----
+def add_new_favorite(user_id: int, content: str) -> bool:
+    """ชื่อเดิมที่บาง handler ใช้ -> ชี้ไปยัง add_favorite"""
+    return add_favorite(user_id, content)
+
+def get_user_favorites(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    """ชื่อเดิมที่บาง handler ใช้ -> ชี้ไปยัง get_favorites_by_user"""
+    return get_favorites_by_user(user_id, limit=limit)
+
+def remove_user_favorite(user_id: int, index: int) -> bool:
+    """
+    ลบรายการโปรดตาม 'ลำดับที่แสดง' (1-based) ของ 10 รายการล่าสุด
+    - สอดคล้องกับ handler ที่รับคำสั่ง /favorite_remove <ลำดับ>
+    - ถ้าต้องการรองรับลำดับเกิน 10 ให้เพิ่ม limit ให้พอคลุม
+    """
+    try:
+        if index < 1:
+            return False
+        lst = get_favorites_by_user(user_id, limit=max(10, index)) or []
+        if index > len(lst):
+            return False
+        fav_id = int(lst[index - 1]["favorite_id"])
+        return remove_favorite_by_id(fav_id, user_id)
+    except Exception:
         return False
