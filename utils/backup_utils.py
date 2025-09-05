@@ -4,20 +4,13 @@
 Google Drive Backup/Restore (Service Account, Render-friendly)
 
 ปรับปรุงสำคัญ:
+- ครอบ .execute() ด้วย retry/backoff ที่ถูกต้อง (เดิม retry ครอบเฉพาะตัวสร้าง request)
 - รองรับทั้งไฟล์ key (.json path ผ่าน GOOGLE_APPLICATION_CREDENTIALS) และ JSON ใน ENV (GOOGLE_SERVICE_ACCOUNT_JSON)
 - ใช้ scope 'drive' (อ่าน/เขียน/ลบ) เพื่อให้ลบไฟล์เดิมได้จริงในโฟลเดอร์ที่แชร์ให้ Service Account
 - ค้นหา/ลบแบบปลอดภัยด้วยเงื่อนไข 'trashed=false' และ 'in parents' (ไม่ลบทั้งไดรฟ์)
-- มี retry/backoff อัตโนมัติสำหรับ 429/5xx
 - รองรับ Snapshot รายวัน: อัปโหลดเข้าโฟลเดอร์ย่อย YYYY-MM-DD (เปิด/ปิดได้ด้วย ENV)
-- เก็บ backup_log.json พร้อมรายการไฟล์/ขนาด/เวลา/ผลลัพธ์
+- เก็บ backup_log.json พร้อมรายการไฟล์/ขนาด/เวลา/ผลลัพธ์ (เขียนแบบ atomic)
 - เพิ่ม restore_by_date('YYYY-MM-DD') และ list_snapshots()
-
-ENV ที่ใช้ (แนะนำให้ตั้งใน Render → Environment):
-- GOOGLE_APPLICATION_CREDENTIALS: path ไปยังไฟล์ service account ใน Secrets (เช่น /etc/secrets/xxx.json)
-- หรือ GOOGLE_SERVICE_ACCOUNT_JSON: เนื้อหา JSON ทั้งก้อน (หากไม่ใช้ไฟล์)
-- GDRIVE_BACKUP_FOLDER_ID: โฟลเดอร์ "ราก" สำหรับเก็บ backup (แชร์ให้ service account ด้วยสิทธิ์ Writer)
-- GDRIVE_SNAPSHOT_BY_DATE: "1" เพื่อสร้างโฟลเดอร์ย่อยเป็น YYYY-MM-DD (ดีฟอลต์ 1)
-- BACKUP_FILES_JSON: รายการไฟล์สำรองแบบ JSON string (override BACKUP_FILES list ได้) เช่น '["usage.json","image_usage.json"]'
 """
 
 from __future__ import annotations
@@ -27,13 +20,19 @@ import io
 import json
 import mimetypes
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.errors import HttpError
+
+# ---- optional safe writer ----
+try:
+    from utils.json_utils import save_json_safe as _save_json_safe
+except Exception:
+    _save_json_safe = None  # fallback ด้านล่าง
 
 # --- Config ---
 CREDENTIALS_FILE = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
@@ -99,10 +98,11 @@ def get_drive_service():
         raise
 
 
-# ===== Retry Decorator =====
+# ===== Retry / Exec helpers =====
 def _retry(func, *args, **kwargs):
     """
     Retry แบบ backoff สำหรับ 429/5xx และ error เครือข่ายทั่วไป (สูงสุด ~4 ครั้ง)
+    ใช้โดยส่งเป็น lambda: _retry(lambda: service.files().list(...).execute())
     """
     attempts = kwargs.pop("_attempts", 4)
     delay = kwargs.pop("_delay", 0.7)
@@ -118,19 +118,25 @@ def _retry(func, *args, **kwargs):
                 continue
             raise
         except Exception as e:
+            # เครือข่าย/timeout อื่น ๆ
             sleep = delay * (2**i)
             _print("RETRY_MISC", attempt=i + 1, sleep=round(sleep, 2), err=str(e))
             time.sleep(sleep)
-    # last try (let it raise)
+    # last try
     return func(*args, **kwargs)
 
 
-# ===== Drive Query Helpers =====
 def _q_and(*parts: str) -> str:
     parts2 = [p for p in parts if p and p.strip()]
     return " and ".join(parts2) if parts2 else ""
 
 
+def _q_escape(name: str) -> str:
+    """escape ชื่อสำหรับ query (single quote)"""
+    return (name or "").replace("\\", "\\\\").replace("'", "\\'")
+
+
+# ===== Drive helpers =====
 def ensure_folder(name: str, parent_id: Optional[str]) -> str:
     """
     สร้างโฟลเดอร์หากยังไม่มี (คืน folder_id)
@@ -139,12 +145,12 @@ def ensure_folder(name: str, parent_id: Optional[str]) -> str:
     """
     service = get_drive_service()
     q = _q_and(
-        f"name = '{name.replace('\'','\\'')}'",
+        f"name = '{_q_escape(name)}'",
         "mimeType = 'application/vnd.google-apps.folder'",
         "trashed = false",
         (f"'{parent_id}' in parents" if parent_id else None),
     )
-    results = _retry(service.files().list, q=q, fields="files(id,name,parents)", pageSize=1).execute()
+    results = _retry(lambda: service.files().list(q=q, fields="files(id,name,parents)", pageSize=1).execute())
     files = results.get("files", [])
     if files:
         return files[0]["id"]
@@ -155,7 +161,7 @@ def ensure_folder(name: str, parent_id: Optional[str]) -> str:
     }
     if parent_id:
         file_metadata["parents"] = [parent_id]
-    folder = _retry(service.files().create, body=file_metadata, fields="id").execute()
+    folder = _retry(lambda: service.files().create(body=file_metadata, fields="id").execute())
     return folder["id"]
 
 
@@ -163,13 +169,21 @@ def _search_files(name: Optional[str] = None, parent_id: Optional[str] = None, p
     service = get_drive_service()
     conds = ["trashed = false"]
     if name:
-        conds.append(f"name = '{name.replace('\'','\\'')}'")
+        conds.append(f"name = '{_q_escape(name)}'")
     if parent_id:
         conds.append(f"'{parent_id}' in parents")
     q = _q_and(*conds)
-    fields = "files(id,name,mimeType,parents,modifiedTime,size,md5Checksum)"
-    results = _retry(service.files().list, q=q, fields=fields, pageSize=page_size).execute()
-    return results.get("files", [])
+    fields = "files(id,name,mimeType,parents,modifiedTime,size,md5Checksum),nextPageToken"
+
+    files: List[Dict] = []
+    page_token = None
+    while True:
+        resp = _retry(lambda: service.files().list(q=q, fields=fields, pageSize=page_size, pageToken=page_token).execute())
+        files.extend(resp.get("files", []))
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+    return files
 
 
 def delete_all_by_name(file_name: str, parent_id: Optional[str] = None):
@@ -179,7 +193,7 @@ def delete_all_by_name(file_name: str, parent_id: Optional[str] = None):
         targets = _search_files(name=file_name, parent_id=parent_id, page_size=100)
         for f in targets:
             try:
-                _retry(service.files().delete, fileId=f["id"]).execute()
+                _retry(lambda: service.files().delete(fileId=f["id"]).execute())
             except Exception as e:
                 _print("ERROR_DELETE", id=f.get("id"), err=str(e))
     except Exception as e:
@@ -206,7 +220,7 @@ def upload_to_gdrive(file_path: str, gdrive_folder_id: Optional[str] = None, ove
 
     mime_type, _ = mimetypes.guess_type(file_path)
     media = MediaFileUpload(file_path, mimetype=mime_type or "application/octet-stream", resumable=True)
-    created = _retry(service.files().create, body=file_metadata, media_body=media, fields="id, name, parents").execute()
+    created = _retry(lambda: service.files().create(body=file_metadata, media_body=media, fields="id,name,parents").execute())
     return created.get("id")
 
 
@@ -238,8 +252,8 @@ def download_from_gdrive(file_name: str, destination: str, parent_id: Optional[s
         downloader = MediaIoBaseDownload(fh, request)
         done = False
         while not done:
-            status, done = _retry(downloader.next_chunk)
-            # จะไม่ spam log ความคืบหน้าเพื่อความสะอาด
+            status, done = _retry(downloader.next_chunk)  # ใช้ถูกแล้ว
+            # ไม่ spam log ความคืบหน้า
         fh.close()
         ok = os.path.exists(destination) and os.path.getsize(destination) > 0
         if not ok:
@@ -274,17 +288,23 @@ def list_snapshots(limit: int = 30) -> List[str]:
         "mimeType = 'application/vnd.google-apps.folder'",
         f"'{parent}' in parents",
     )
-    res = _retry(service.files().list, q=q, fields="files(id,name,modifiedTime)", pageSize=200).execute()
-    rows = res.get("files", [])
-    # กรองชื่อ pattern YYYY-MM-DD และเรียงตามวันที่
-    out = []
-    for r in rows:
-        name = r.get("name", "")
-        try:
-            datetime.strptime(name, "%Y-%m-%d")
-            out.append(name)
-        except Exception:
-            continue
+    fields = "files(id,name,modifiedTime),nextPageToken"
+
+    out: List[str] = []
+    token = None
+    while True:
+        res = _retry(lambda: service.files().list(q=q, fields=fields, pageSize=200, pageToken=token).execute())
+        rows = res.get("files", [])
+        for r in rows:
+            name = r.get("name", "")
+            try:
+                datetime.strptime(name, "%Y-%m-%d")
+                out.append(name)
+            except Exception:
+                continue
+        token = res.get("nextPageToken")
+        if not token:
+            break
     return sorted(out, reverse=True)[:limit]
 
 
@@ -337,11 +357,16 @@ def backup_all(date_text: Optional[str] = None) -> Dict[str, Optional[str]]:
             status["files"].append(entry)
             results[file_path] = entry.get("id")
 
-    # Save log
+    # Save log (atomic ถ้ามี util)
     try:
         os.makedirs(os.path.dirname(BACKUP_LOG_FILE) or ".", exist_ok=True)
-        with open(BACKUP_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(status, f, ensure_ascii=False, indent=2)
+        if _save_json_safe:
+            _save_json_safe(status, BACKUP_LOG_FILE, ensure_ascii=False, indent=2, sort_keys=False)
+        else:
+            tmp = f"{BACKUP_LOG_FILE}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(status, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, BACKUP_LOG_FILE)
     except Exception as log_err:
         _print("BACKUP_LOG_ERROR", err=str(log_err))
 
