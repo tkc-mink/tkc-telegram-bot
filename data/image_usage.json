@@ -1,9 +1,1 @@
-{
-  "YYYY-MM-DD": {
-    "<user_id>": <image_count_for_that_day>,
-    "...": 0
-  },
-  "YYYY-MM-DD": {
-    "...": 0
-  }
-}
+{}
