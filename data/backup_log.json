@@ -1,6 +1,20 @@
 {
-  "timestamp": "",
-  "files": [],
-  "success": false,
-  "details": "ยังไม่เคย backup"
+  "timestamp": "2025-09-05T21:35:12+07:00",
+  "date": "2025-09-05",
+  "files": [
+    {
+      "file": "usage.json",
+      "id": "1aBcDeFgHiJkLmNoP",
+      "ok": true,
+      "size": 12345
+    },
+    {
+      "file": "context_history.json",
+      "id": "2QrStUvWxYz987654",
+      "ok": true,
+      "size": 6789
+    }
+  ],
+  "success": true,
+  "snapshot": true
 }
