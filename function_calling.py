@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 Function Calling Engine (Gemini, ChatSession)
-- สนทนาแบบหลายเทิร์น (มีบริบทต่อเนื่อง) ด้วย Gemini v1
+- สนทนาแบบหลายเทิร์น (มีบริบทต่อเนื่อง) ด้วย Gemini v1 (google-generativeai >= 0.8.x)
 - รองรับเครื่องมือเรียกข้อมูลสด: weather/gold/news/stock/oil/lottery/crypto
-- API:
-    process_with_function_calling(user_info, user_text, ctx=None, conv_summary=None)
-    summarize_text_with_gpt(text)
+- Public API:
+    process_with_function_calling(user_info, user_text, ctx=None, conv_summary=None) -> str
+    summarize_text_with_gpt(text) -> str
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
@@ -16,8 +16,13 @@ from threading import RLock
 
 import google.generativeai as genai
 
-# ใช้เฉพาะฟังก์ชันที่ต้องใช้จริง เพื่อกัน ImportError/วงจรอิมพอร์ต
-from utils.gemini_client import generate_text
+# --- import generate_text: รองรับทั้ง providers/ และ utils/ ---
+try:
+    from providers.gemini_client import generate_text as _gen_text  # แนะนำให้มีไฟล์นี้
+except Exception:
+    # เผื่อมี shim ไว้ใน utils/
+    from utils.gemini_client import generate_text as _gen_text  # type: ignore
+generate_text = _gen_text
 
 # ---------- Tool functions ----------
 from utils.weather_utils import get_weather_forecast
@@ -42,7 +47,7 @@ _TEXT_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT_SEC", "60"))
 _MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "4000"))
 _SESSION_CAP = int(os.getenv("CHAT_SESSION_CAP", "200"))
 
-# พยายามตั้งค่า genai.configure ถ้ายังไม่ได้ตั้งไว้ (เรียกซ้ำได้ ไม่พัง)
+# ตั้งค่า genai.configure ถ้ามีคีย์
 try:
     if _GEMINI_API_KEY:
         genai.configure(api_key=_GEMINI_API_KEY)
@@ -84,16 +89,19 @@ TOOL_CONFIG = {
 }
 
 # ---------- Model with tools & system ----------
-try:
-    # สำหรับ google-generativeai==0.8.x ใช้ 'model_name' (ไม่ใช่ 'model')
-    gemini_model_with_tools = genai.GenerativeModel(
-        model_name="gemini-1.5-flash-latest",
-        tools=[TOOL_CONFIG],  # list ของ tool blocks
-        system_instruction=SYSTEM_PROMPT,
-    )
-except Exception as e:
-    print(f"[function_calling] ❌ ERROR: init GenerativeModel failed: {e}")
-    gemini_model_with_tools = None
+gemini_model_with_tools: Optional[Any] = None
+if _GEMINI_API_KEY:
+    try:
+        # google-generativeai 0.8.x ใช้ parameter 'model_name'
+        gemini_model_with_tools = genai.GenerativeModel(
+            model_name="gemini-1.5-flash-latest",
+            tools=[TOOL_CONFIG],
+            system_instruction=SYSTEM_PROMPT,
+        )
+    except Exception as e:
+        print(f"[function_calling] ❌ ERROR: init GenerativeModel failed: {e}")
+else:
+    print("[function_calling] INFO: GOOGLE_API_KEY/GEMINI_API_KEY not set — tools chat disabled.")
 
 # ---------- In-memory sessions (LRU + lock) ----------
 CHAT_SESSIONS: Dict[int, Any] = {}
@@ -118,10 +126,12 @@ def _dispatch_tool(user_info: Dict[str, Any], fname: str, args: Dict[str, Any]) 
             return get_gold_price()
 
         if fname == "get_news":
-            return get_news(args.get("topic", "ข่าวล่าสุด"))
+            topic = str(args.get("topic", "ข่าวล่าสุด") or "ข่าวล่าสุด")
+            return get_news(topic)
 
         if fname == "get_stock_info":
-            return get_stock_info_from_google(args.get("symbol", "PTT.BK"))
+            symbol = str(args.get("symbol", "PTT.BK") or "PTT.BK").strip()
+            return get_stock_info_from_google(symbol)
 
         if fname == "get_oil_price":
             return get_oil_price_from_google()
@@ -130,7 +140,8 @@ def _dispatch_tool(user_info: Dict[str, Any], fname: str, args: Dict[str, Any]) 
             return get_lottery_result()
 
         if fname == "get_crypto_price":
-            return get_crypto_price_from_google(args.get("symbol", "BTC"))
+            symbol = str(args.get("symbol", "BTC") or "BTC").strip()
+            return get_crypto_price_from_google(symbol)
 
         return f"เอ๊ะ... ชิบะน้อยไม่รู้จักเครื่องมือที่ชื่อ {fname} ครับ"
     except Exception as e:
@@ -151,7 +162,7 @@ def _ensure_session(user_id: int, ctx: List[Dict[str, str]], conv_summary: str) 
         for m in (ctx or [])[-12:]:
             role = "user" if (m.get("role") == "user") else "model"
             history.append({"role": role, "parts": [{"text": m.get("content", "")}]})
-        chat = gemini_model_with_tools.start_chat(history=history)
+        chat = gemini_model_with_tools.start_chat(history=history)  # type: ignore[union-attr]
         CHAT_SESSIONS[user_id] = chat
         _LAST_USED[user_id] = time.time()
 
@@ -159,12 +170,9 @@ def _ensure_session(user_id: int, ctx: List[Dict[str, str]], conv_summary: str) 
         if len(CHAT_SESSIONS) > max(_SESSION_CAP, 1):
             oldest_uid = min(_LAST_USED, key=_LAST_USED.get)
             if oldest_uid != user_id:
-                try:
-                    del CHAT_SESSIONS[oldest_uid]
-                    del _LAST_USED[oldest_uid]
-                    print(f"[ChatSession] evict user {oldest_uid}")
-                except Exception:
-                    pass
+                CHAT_SESSIONS.pop(oldest_uid, None)
+                _LAST_USED.pop(oldest_uid, None)
+                print(f"[ChatSession] evict user {oldest_uid}")
         return chat
 
 def _clear_session(user_id: int) -> None:
@@ -194,7 +202,6 @@ def _find_function_call_in_parts(parts: Any) -> Optional[Any]:
     for p in parts:
         if getattr(p, "function_call", None):
             return p
-        # บางครั้ง p เป็น dict
         if isinstance(p, dict) and "function_call" in p:
             return p
     return None
@@ -204,7 +211,7 @@ def _extract_function_call(resp: Any) -> Tuple[Optional[str], Dict[str, Any]]:
     คืน (fname, fargs) หากมี function_call; ไม่งั้น (None, {})
     รองรับหลายรูปแบบ response ของ SDK
     """
-    # กรณีทั่วไป: resp.parts
+    # 1) บน resp.parts
     try:
         p = _find_function_call_in_parts(getattr(resp, "parts", None))
         if p:
@@ -221,7 +228,7 @@ def _extract_function_call(resp: Any) -> Tuple[Optional[str], Dict[str, Any]]:
     except Exception:
         pass
 
-    # เผื่ออยู่ใน candidates[].content.parts
+    # 2) เผื่ออยู่ใน candidates[].content.parts
     try:
         for c in getattr(resp, "candidates", []) or []:
             content = getattr(c, "content", None)
@@ -250,6 +257,12 @@ def process_with_function_calling(
     ctx: List[Dict[str, str]] | None = None,
     conv_summary: str | None = None,
 ) -> str:
+    # แจ้งชัดเจนหากยังไม่มีคีย์
+    if not _GEMINI_API_KEY:
+        return ("ตอนนี้ชิบะน้อยยังเรียกสมอง Gemini ไม่ได้ครับ "
+                "เพราะยังไม่ได้ตั้งค่า GOOGLE_API_KEY (หรือ GEMINI_API_KEY) บนเซิร์ฟเวอร์ "
+                "ให้ผู้ดูแลตั้งค่าแล้วลองใหม่อีกครั้งนะครับ")
+
     if not gemini_model_with_tools:
         return "แย่จัง! ตอนนี้สมองของชิบะน้อยไม่ทำงานครับ"
 
