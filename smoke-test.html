@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Smoke Test — แก้ราคายาง</title>
+<style>
+  :root { --ok:#1f9d55; --bad:#d6314b; --bg:#0f141a; --panel:#1a232e; --line:#2b3a4a; --tx:#dbe7f3; --mut:#8aa0b4; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-monospace, "Cascadia Code", Menlo, monospace; background: var(--bg); color: var(--tx); }
+  .wrap { display:grid; grid-template-columns: 1fr 460px; gap:0; height:100vh; }
+  .left { padding:18px 20px; overflow:auto; }
+  .right { border-left:1px solid var(--line); background:#0a0e12; display:flex; flex-direction:column; }
+  h1 { font-size:16px; margin:0 0 2px; letter-spacing:.3px; }
+  .sub { color:var(--mut); font-size:12px; margin-bottom:14px; }
+  .bar { display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .summary { font-size:15px; font-weight:700; padding:7px 14px; border-radius:8px; border:1px solid var(--line); }
+  .summary.pass { background:rgba(31,157,85,.14); color:#4fd98a; border-color:#1f9d55; }
+  .summary.fail { background:rgba(214,49,75,.14); color:#ff7d96; border-color:#d6314b; }
+  .summary.run { background:#222d3a; color:var(--mut); }
+  button { font:inherit; font-size:13px; cursor:pointer; background:#243244; color:var(--tx); border:1px solid var(--line); padding:7px 14px; border-radius:8px; }
+  button:hover { background:#2d3e54; }
+  .grp { margin:14px 0 6px; font-size:12px; color:var(--mut); text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid var(--line); padding-bottom:5px; }
+  .row { display:flex; align-items:flex-start; gap:9px; padding:4px 2px; font-size:13px; border-bottom:1px dashed #1d2934; }
+  .ic { width:16px; flex:0 0 16px; text-align:center; font-weight:700; }
+  .ic.ok { color:var(--ok); } .ic.bad { color:var(--bad); } .ic.run { color:var(--mut); }
+  .nm { flex:1; }
+  .dt { color:var(--mut); font-size:11px; }
+  .row.bad .nm { color:#ff9fb0; }
+  iframe { width:100%; flex:1; border:0; background:#fff; }
+  .right .cap { padding:8px 12px; font-size:11px; color:var(--mut); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <h1>🧪 Smoke Test · แก้ราคายาง</h1>
+    <div class="sub">โหลด <code>index.html</code> จริง แล้วตรวจ globals / DOM / เปิด-ปิดทุกไดอะล็อก · <b>อ่านอย่างเดียว ไม่บันทึก ไม่แตะข้อมูล</b></div>
+    <div class="bar">
+      <div class="summary run" id="summary">⏳ กำลังโหลด…</div>
+      <button id="rerun">↻ รันใหม่</button>
+      <span class="dt" id="stamp"></span>
+    </div>
+    <div id="results"></div>
+  </div>
+  <div class="right">
+    <div class="cap"><span>แอปจริง (iframe)</span><span id="frameState">…</span></div>
+    <iframe id="app" src="index.html"></iframe>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var frame = $('app');
+
+  // ── นิยามชุดทดสอบ: แต่ละตัวคืน true/ข้อความ-เมื่อ-ผ่าน หรือ throw/false เมื่อไม่ผ่าน ──
+  function checks(win, doc) {
+    function need(v, label) { if (!v) throw new Error(label || 'ไม่พบ'); return true; }
+    function fn(n) { return typeof win[n] === 'function'; }
+    function openClose(openFn, modalId, extra) {
+      openFn();
+      var m = doc.getElementById(modalId);
+      var ok = m && m.classList.contains('open');
+      var ex = extra ? extra() : true;
+      if (m) m.classList.remove('open');
+      need(ok, 'ไดอะล็อกไม่เปิด (#' + modalId + ')');
+      need(ex, 'เนื้อหาในไดอะล็อกไม่ครบ');
+      return 'เปิด/ปิดได้';
+    }
+    return [
+      ['เครื่องยนต์หลัก', [
+        ['XL2 / SG / DBX พร้อม', function () { return need(win.XL2 && win.SG && win.DBX, 'engine global หาย'); }],
+      ]],
+      ['Global จากแกนหลัก (main 1–7)', [
+        ['$ , refresh , renderSheets', function () { return need(fn('$') && fn('refresh') && fn('renderSheets')); }],
+        ['renderFltBar (filter-bar)', function () { return need(fn('renderFltBar')); }],
+        ['applyMode / enforceArchiveLock (main-3)', function () { return need(fn('applyMode') && fn('enforceArchiveLock') && fn('isArchivedCur')); }],
+        ['cfBuild / placePop / setBdColor (main-4)', function () { return need(fn('cfBuild') && fn('placePop') && fn('setBdColor') && fn('setFontA') && fn('setLastFill')); }],
+        ['renderVersions (main-5)', function () { return need(fn('renderVersions')); }],
+        ['openSettings / pv / apply*Colors (main-6)', function () { return need(fn('openSettings') && fn('pv') && fn('applyMarkColors') && fn('applyHdrColors') && fn('applyAdmStyle') && fn('applyDbLinkColors') && fn('updDbSrcBadge')); }],
+        ['getFileName / wireSetBtn (main-7)', function () { return need(fn('getFileName') && fn('setFileName') && fn('wireSetBtn')); }],
+        ['groupMorePop (main-2)', function () { return need(fn('groupMorePop') && fn('updateMoreBadge')); }],
+        ['snapshot/restoreSettings (undo สี)', function () { return need(fn('snapshotSettings') && fn('restoreSettings')); }],
+      ]],
+      ['Global จากไดอะล็อก/ฟีเจอร์เสริม', [
+        ['PopupStack / makeDraggable / AppDialog', function () { return need(win.PopupStack && fn('makeDraggable') && win.AppDialog); }],
+        ['confirmDialog / promptDialog / alertDialog', function () { return need(fn('confirmDialog') && fn('promptDialog') && fn('alertDialog')); }],
+        ['openEmojiPicker (emoji-picker.js)', function () { return need(fn('openEmojiPicker')); }],
+      ]],
+      ['DOM เรนเดอร์', [
+        ['ตาราง #grid มีเซลล์', function () { return need(doc.querySelectorAll('#grid *').length > 100, 'ตารางว่าง'); }],
+        ['จานสีเทสี #swGrid', function () { return need(doc.querySelectorAll('#swGrid *').length > 0); }],
+        ['จานสีตัวอักษร #fontGrid', function () { return need(doc.querySelectorAll('#fontGrid *').length > 0); }],
+        ['สีเส้นขอบ #bdColors = 8', function () { return need(doc.querySelectorAll('#bdColors .bd-c').length === 8, 'จำนวนสีเส้นขอบผิด'); }],
+        ['แถบกรอง #fltbar', function () { return need(doc.getElementById('fltbar').children.length > 0); }],
+      ]],
+      ['ลำดับสคริปต์ / ความสะอาด', [
+        ['main-1…7 โหลดเรียงถูก', function () {
+          var order = [].slice.call(doc.scripts).map(function (s) { return s.src.split('/').pop(); }).filter(function (x) { return /^main-\d/.test(x); });
+          var want = ['main-1-boot.js','main-2-more-menu.js','main-3-view-mode.js','main-4a-color-core.js','main-4b-color-toolbar.js','main-5-file-menu.js','main-6a-settings.js','main-6b-settings-tabs.js','main-7a-sheet-file.js','main-7b-init.js'];
+          return need(order.join(',') === want.join(','), 'ลำดับ main-*.js ผิด: ' + order.join(','));
+        }],
+        ['ไม่มี inline JS ของแอป (เฉพาะ src)', function () {
+          var bare = [].slice.call(doc.querySelectorAll('script')).filter(function (s) {
+            if (s.getAttribute('src')) return false;
+            var t = s.textContent || '';
+            if (/claude\.ai|preview\./.test(t)) return false;   // ข้ามสคริปต์ที่แพลตฟอร์มพรีวิวฉีดเข้ามา (ตอน deploy จริงไม่มี)
+            return t.trim().length > 0;
+          });
+          return need(bare.length === 0, 'พบ inline <script> ของแอป ' + bare.length + ' ตัว');
+        }],
+      ]],
+      ['CSS (แยก 6 ไฟล์ css-01…06)', [
+        ['โหลดครบ 6 ไฟล์ + เรียงถูก', function () {
+          var order = [].slice.call(doc.styleSheets).map(function (ss) { return (ss.href || '').split('/').pop(); }).filter(function (x) { return /^css-\d/.test(x); });
+          var want = ['css-01-base-grid.css','css-02-windows.css','css-03-pickers-dialogs.css','css-04-toolbar-misc.css','css-05-darkmode-images.css','css-06-refinements.css'];
+          return need(order.join(',') === want.join(','), 'ลำดับ/จำนวน CSS ผิด: ' + order.join(','));
+        }],
+        ['มี CSS rule รวม > 1000', function () {
+          var n = 0; [].slice.call(doc.styleSheets).forEach(function (ss) { try { if (/css-\d/.test(ss.href || '')) n += ss.cssRules.length; } catch (e) {} });
+          return need(n > 1000, 'rule น้อยผิดปกติ: ' + n);
+        }],
+        ['โหมดมืดมีผล (body เปลี่ยนสีพื้น)', function () {
+          var b = doc.body; var was = b.classList.contains('dark');
+          b.classList.remove('dark'); var light = win.getComputedStyle(b).backgroundColor;
+          b.classList.add('dark'); var dark = win.getComputedStyle(b).backgroundColor;
+          if (!was) b.classList.remove('dark');
+          return need(light !== dark, 'โหมดมืดไม่เปลี่ยนสี (css-05 อาจไม่โหลด)');
+        }],
+      ]],
+      ['เปิด-ปิดไดอะล็อกจริง (interaction)', [
+        ['หน้าตั้งค่า ⚙️ + สร้าง grid สี', function () { return openClose(function () { win.openSettings('margin'); }, 'mCond', function () { return doc.querySelectorAll('#condPosGrid *').length > 0; }); }],
+        ['อัพเดทราคา 🔄⏱ (price-update.js)', function () { return openClose(function () { doc.getElementById('btnSync').click(); }, 'mUpdate'); }],
+        ['เวอร์ชัน 🕓 (main-5)', function () { return openClose(function () { win.renderVersions(); doc.getElementById('mVersions').classList.add('open'); }, 'mVersions'); }],
+        ['กำหนดเวลา ⏱ (main-7)', function () { return openClose(function () { doc.getElementById('schedChip').click(); }, 'mSched'); }],
+        ['เมนู ⋯ จัดกลุ่ม (main-2)', function () { return openClose(function () { doc.getElementById('btnMore').click(); }, 'morePop', function () { return doc.querySelectorAll('#morePop .btn').length > 0; }); }],
+        ['ตัวเลือกอีโมจิ (emoji-picker.js)', function () {
+          win.openEmojiPicker(doc.body, '', function () {});
+          var ep = doc.querySelector('.emoji-pick');
+          var ok = ep && ep.querySelectorAll('.emoji-it').length > 0;
+          if (ep) { ep.style.display = 'none'; try { win.PopupStack.remove(ep); } catch (e) {} }
+          return need(ok, 'อีโมจิไม่ขึ้น');
+        }],
+        ['สลับโหมด admin↔user แล้วคืนค่า', function () {
+          var b = win.SG.getMode(); win.applyMode(b === 'admin' ? 'user' : 'admin'); win.applyMode(b);
+          return need(win.SG.getMode() === b, 'คืนโหมดไม่ได้');
+        }],
+      ]],
+    ];
+  }
+
+  function run() {
+    var win, doc;
+    try { win = frame.contentWindow; doc = frame.contentDocument || win.document; }
+    catch (e) { setSummary(false, 'เข้าถึง iframe ไม่ได้: ' + e.message); return; }
+    if (!doc || !doc.getElementById('grid')) { setSummary(false, 'ยังโหลดไม่เสร็จ — กด “รันใหม่”'); return; }
+
+    var groups = checks(win, doc);
+    var host = $('results'); host.innerHTML = '';
+    var pass = 0, total = 0;
+    groups.forEach(function (g) {
+      var h = document.createElement('div'); h.className = 'grp'; h.textContent = g[0]; host.appendChild(h);
+      g[1].forEach(function (c) {
+        total++;
+        var ok = false, detail = '';
+        try { var res = c[1](); ok = res !== false; detail = (typeof res === 'string') ? res : ''; }
+        catch (e) { ok = false; detail = e.message; }
+        if (ok) pass++;
+        var row = document.createElement('div'); row.className = 'row' + (ok ? '' : ' bad');
+        row.innerHTML = '<span class="ic ' + (ok ? 'ok' : 'bad') + '">' + (ok ? '✔' : '✘') + '</span>' +
+          '<span class="nm">' + c[0] + (detail ? ' <span class="dt">· ' + detail + '</span>' : '') + '</span>';
+        host.appendChild(row);
+      });
+    });
+    setSummary(pass === total, pass + '/' + total + ' ผ่าน');
+    $('stamp').textContent = new Date().toLocaleTimeString('th-TH');
+  }
+
+  function setSummary(ok, txt) {
+    var s = $('summary'); s.className = 'summary ' + (ok ? 'pass' : 'fail');
+    s.textContent = (ok ? '✅ ' : '❌ ') + txt;
+  }
+
+  frame.addEventListener('load', function () {
+    $('frameState').textContent = 'โหลดแล้ว';
+    setSummary(false, 'กำลังตรวจ…'); $('summary').className = 'summary run';
+    setTimeout(run, 900);
+  });
+  $('rerun').addEventListener('click', function () {
+    $('frameState').textContent = 'กำลังโหลด…';
+    $('summary').className = 'summary run'; $('summary').textContent = '⏳ รีโหลด…';
+    frame.src = 'index.html?smoke=' + Date.now();
+  });
+})();
+</script>
+</body>
+</html>

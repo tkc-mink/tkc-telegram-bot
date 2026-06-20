@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>โปรแกรมแก้ราคายาง — สไตล์ Excel · ปิคอัพ-01</title>
+<link rel="stylesheet" href="app-xls/xls-styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== Ribbon / toolbar ===== -->
+  <div class="ribbon">
+    <div class="brand">
+      <div class="logo">฿</div>
+      <div class="ttl">แก้ราคายาง<small>TKC · สไตล์ Excel</small></div>
+    </div>
+
+    <div class="grp">
+      <button class="btn primary keeptx" id="btnSave"><span class="ic">💾</span><span class="tx">บันทึก</span></button>
+      <button class="btn" id="btnSaveAs"><span class="ic">🗂️</span><span class="tx">บันทึกเป็น…</span></button>
+      <button class="btn" id="btnVersions"><span class="ic">🕓</span><span class="tx">เวอร์ชัน</span></button>
+    </div>
+
+    <div class="grp">
+      <button class="btn icon" id="btnUndo" title="ย้อนกลับ (Ctrl+Z)"><span class="ic">↶</span></button>
+      <button class="btn icon" id="btnRedo" title="ทำซ้ำ (Ctrl+Y)"><span class="ic">↷</span></button>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="btnAddRim" title="ขึ้น section ขอบใหม่ต่อท้ายชีต (เช่น ขอบ 16″)"><span class="ic">➕</span><span class="tx">ขอบ</span></button>
+      <button class="btn" id="btnAddSize" title="เพิ่มขนาดยางใหม่ (กลุ่มใหม่) ต่อท้ายกลุ่มปัจจุบัน"><span class="ic">➕</span><span class="tx">ขนาด</span></button>
+      <button class="btn danger" id="btnDelSize" title="ลบขนาดยางทั้งกลุ่มที่เลือก"><span class="ic">🗑️</span><span class="tx">ขนาด</span></button>
+      <button class="btn" id="btnAdd" title="เพิ่มรุ่นใต้แถวที่เลือก"><span class="ic">➕</span><span class="tx">รุ่น</span></button>
+      <button class="btn danger" id="btnDel" title="ลบแถวที่เลือก"><span class="ic">🗑️</span><span class="tx">รุ่น</span></button>
+      <button class="btn icon" id="btnUp" title="ย้ายขึ้น"><span class="ic">▲</span></button>
+      <button class="btn icon" id="btnDown" title="ย้ายลง"><span class="ic">▼</span></button>
+      <button class="btn" id="btnMerge" title="ผสาน/ยกเลิกผสานช่องที่เลือก"><span class="ic">⊞</span><span class="tx">ผสาน</span></button>
+    </div>
+
+    <div class="grp">
+      <select class="sel" id="fontSize" title="ขนาดตัวอักษร (พอยนต์)">
+        <option value="">ขนาด…</option>
+        <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+        <option value="11">11</option><option value="12">12</option><option value="14">14</option>
+        <option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="24">24</option>
+      </select>
+      <button class="btn icon" id="btnBold" title="ตัวหนา"><span class="ic" style="font-weight:800;">B</span></button>
+      <button class="btn icon" id="btnItalic" title="ตัวเอียง"><span class="ic" style="font-style:italic;font-family:Georgia,serif;">I</span></button>
+      <button class="btn icon" id="btnUnder" title="ขีดเส้นใต้"><span class="ic" style="text-decoration:underline;">U</span></button>
+    </div>
+
+    <div class="grp">
+      <div class="swatchwrap">
+        <button class="btn" id="btnFill" title="ระบายสีพื้นช่องที่เลือก"><span class="ic">🎨</span><span class="tx">สีช่อง</span> ▾</button>
+        <div class="swpop" id="swPop">
+          <div class="lbl">สีพื้นช่อง (ใช้กับช่องที่เลือกไว้)</div>
+          <div class="swgrid" id="swGrid"></div>
+        </div>
+      </div>
+      <div class="swatchwrap">
+        <button class="btn" id="btnFont" title="สีตัวอักษร/ตัวเลขของช่องที่เลือก"><span class="ic" style="font-weight:800;color:#C00000;">A</span><span class="tx">สีอักษร</span> ▾</button>
+        <div class="swpop" id="fontPop">
+          <div class="lbl">สีตัวอักษร/ตัวเลข (ใช้กับช่องที่เลือกไว้)</div>
+          <div class="swgrid" id="fontGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="btnLockRow" title="ซ่อน/แสดงแถวที่เลือกจากผู้ใช้ (เฉพาะแอดมินเห็น)"><span class="ic">🔒</span><span class="tx">แถว</span></button>
+      <button class="btn" id="btnLockCol" title="ซ่อน/แสดงคอลัมน์ที่เลือกจากผู้ใช้ (เฉพาะแอดมินเห็น)"><span class="ic">🔒</span><span class="tx">คอลัมน์</span></button>
+    </div>
+
+    <div class="grp">
+      <button class="btn on keeptx" id="btnModeAdmin" title="โหมดแอดมิน — แก้ไขได้ เห็นทุกอย่าง"><span class="ic">🛠️</span><span class="tx">แอดมิน</span></button>
+      <button class="btn keeptx" id="btnModeUser" title="ดูตัวอย่างหน้าผู้ใช้ — แถว/คอลัมน์ที่ติด 🔒 ถูกซ่อน"><span class="ic">👁️</span><span class="tx">ผู้ใช้</span></button>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="btnSecret" title="ซ่อน/แสดงเลขทุน & ราคาส่ง (เหลือเฉพาะรหัสลับ)"><span class="ic">🙈</span><span class="tx">ซ่อนเลข</span></button>
+      <button class="btn" id="btnPrint" title="พิมพ์ A4"><span class="ic">🖨️</span><span class="tx">พิมพ์</span></button>
+    </div>
+  </div>
+
+  <!-- ===== File strip ===== -->
+  <div class="filebar">
+    <span class="fname" id="fname">ราคายาง ปิคอัพ-01</span>
+    <span class="pill" id="pillCat">หมวด: ยางปิคอัพ</span>
+    <span class="pill" id="pillRows">— รายการ</span>
+    <span class="pill">ขอบ 14″ / 15″</span>
+    <span id="saveState">✓ บันทึกแล้ว</span>
+  </div>
+
+  <!-- ===== Grid ===== -->
+  <div class="gridwrap">
+    <div class="gridhost" id="grid"></div>
+  </div>
+
+  <!-- ===== Status bar ===== -->
+  <div class="statusbar">
+    <span id="status"></span>
+    <span class="legend">
+      <span class="lg"><span class="chip" style="background:#FFF7EF;border-color:#e0b890;"></span> รหัสลับ (อัตโนมัติ)</span>
+      <span class="lg"><span class="chip" style="background:repeating-linear-gradient(45deg, rgba(192,57,43,.25) 0 3px, #fff 3px 6px);"></span> 🔒 เฉพาะแอดมิน</span>
+      <span class="zoomw">
+        <button class="zb" id="zOut">−</button><span id="zVal">100%</span><button class="zb" id="zIn">+</button>
+      </span>
+    </span>
+  </div>
+</div>
+
+<!-- ===== Save As dialog ===== -->
+<div class="modal" id="mSaveAs">
+  <div class="dlg">
+    <h3>บันทึกเป็นเวอร์ชันใหม่</h3>
+    <div class="bd">
+      ตั้งชื่อไฟล์เวอร์ชันนี้ (ข้อมูลเดิมจะถูกเก็บไว้แยกต่างหาก)
+      <input id="saveAsName" placeholder="เช่น ราคายาง ปิคอัพ-01 (22 เม.ย. 69)" />
+    </div>
+    <div class="ft">
+      <button class="btn" data-close>ยกเลิก</button>
+      <button class="btn primary" id="saveAsOk">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Versions dialog ===== -->
+<div class="modal" id="mVersions">
+  <div class="dlg">
+    <h3>เวอร์ชันที่บันทึกไว้</h3>
+    <div class="bd">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn" id="btnNewFromSrc" style="font-size:12px;">↺ โหลดต้นฉบับใหม่</button>
+        <span style="color:#888;font-size:11px;">(แทนที่ข้อมูลปัจจุบันด้วยต้นฉบับจาก Excel)</span>
+      </div>
+      <div class="vlist" id="vList"></div>
+    </div>
+    <div class="ft"><button class="btn" data-close>ปิด</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="app-xls/data-pickup01.js"></script>
+<script src="app-xls/engine.js"></script>
+<script src="app-xls/grid.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+
+  Grid.init({ root: $('grid'), status: $('status') });
+  refreshMeta();
+
+  function refreshMeta() {
+    var d = Grid.getDoc();
+    $('fname').textContent = d.name || 'ราคายาง ปิคอัพ-01';
+    $('pillCat').textContent = 'หมวด: ' + d.meta.category;
+    $('pillRows').textContent = d.rows.length + ' รายการ';
+  }
+
+  // ---- save state poll ----
+  setInterval(function () {
+    var s = $('saveState');
+    if (Grid.isDirty()) { s.textContent = '● ยังไม่บันทึก'; s.classList.remove('clean'); }
+    else { s.textContent = '✓ บันทึกแล้ว'; s.classList.add('clean'); }
+    refreshMeta();
+  }, 600);
+
+  // ---- buttons ----
+  $('btnSave').onclick = function () { Grid.save(); };
+  $('btnUndo').onclick = function () { Grid.undo(); };
+  $('btnRedo').onclick = function () { Grid.redo(); };
+  $('btnAdd').onclick = function () { Grid.addRow(); };
+  $('btnDel').onclick = function () { Grid.deleteRows(); };
+  $('btnAddSize').onclick = function () { Grid.addSizeGroup(); };
+  $('btnAddRim').onclick = function () { Grid.addRimSection(); };
+  $('btnDelSize').onclick = function () { Grid.delSizeGroup(); };
+  $('btnMerge').onclick = function () { Grid.toggleMerge(); };
+  $('btnBold').onclick = function () { Grid.applyFontStyle('b'); };
+  $('btnItalic').onclick = function () { Grid.applyFontStyle('i'); };
+  $('btnUnder').onclick = function () { Grid.applyFontStyle('u'); };
+  $('fontSize').onchange = function () { var v = +this.value; if (v) Grid.applyFontStyle('sz', v); this.value = ''; };
+  $('btnUp').onclick = function () { Grid.moveRow(-1); };
+  $('btnDown').onclick = function () { Grid.moveRow(1); };
+  $('btnPrint').onclick = function () { window.print(); };
+
+  var secret = false;
+  $('btnSecret').onclick = function () {
+    secret = Grid.toggleSecret();
+    this.classList.toggle('on', secret);
+    this.querySelector('.tx').textContent = secret ? 'แสดงเลข' : 'ซ่อนเลข';
+  };
+
+  // ---- admin / user view mode ----
+  function applyMode(m) {
+    Grid.setMode(m);
+    var isAdmin = (m === 'admin');
+    $('btnModeAdmin').classList.toggle('on', isAdmin);
+    $('btnModeUser').classList.toggle('on', !isAdmin);
+    // disable editing tools in user view
+    ['btnAdd','btnDel','btnAddSize','btnDelSize','btnAddRim','btnMerge','btnBold','btnItalic','btnUnder','fontSize','btnUp','btnDown','btnFill','btnFont','btnLockRow','btnLockCol','btnUndo','btnRedo'].forEach(function (id) {
+      $(id).disabled = !isAdmin;
+    });
+  }
+  $('btnModeAdmin').onclick = function () { applyMode('admin'); };
+  $('btnModeUser').onclick = function () { applyMode('user'); };
+
+  // ---- admin-only marking ----
+  $('btnLockRow').onclick = function () { Grid.toggleLockRows(); };
+  $('btnLockCol').onclick = function () { Grid.toggleLockCols(); };
+
+  // ---- zoom ----
+  function setZ(z) { Grid.setZoom(z); $('zVal').textContent = Math.round(Grid.getZoom() * 100) + '%'; }
+  $('zIn').onclick = function () { setZ(Grid.getZoom() + 0.1); };
+  $('zOut').onclick = function () { setZ(Grid.getZoom() - 0.1); };
+
+  // ---- fill swatches ----
+  var swGrid = $('swGrid');
+  XLS.PALETTE.forEach(function (p) {
+    var b = document.createElement('div');
+    b.className = 'sw' + (p.c ? '' : ' none');
+    if (p.c) b.style.background = '#' + p.c;
+    b.title = p.n;
+    b.onclick = function () { Grid.applyFill(p.c); $('swPop').classList.remove('open'); };
+    swGrid.appendChild(b);
+  });
+  $('btnFill').onclick = function (e) { e.stopPropagation(); $('fontPop').classList.remove('open'); $('swPop').classList.toggle('open'); };
+
+  // ---- font color swatches ----
+  var fontGrid = $('fontGrid');
+  XLS.FONT_PALETTE.forEach(function (p) {
+    var b = document.createElement('div');
+    b.className = 'sw swfont' + (p.c ? '' : ' none');
+    if (p.c) { b.style.color = '#' + p.c; b.textContent = 'A'; if (p.c === 'FFFFFF') b.style.background = '#999'; }
+    b.title = p.n;
+    b.onclick = function () { Grid.applyFontColor(p.c); $('fontPop').classList.remove('open'); };
+    fontGrid.appendChild(b);
+  });
+  $('btnFont').onclick = function (e) { e.stopPropagation(); $('swPop').classList.remove('open'); $('fontPop').classList.toggle('open'); };
+
+  document.addEventListener('click', function () { $('swPop').classList.remove('open'); $('fontPop').classList.remove('open'); });
+  $('swPop').onclick = function (e) { e.stopPropagation(); };
+  $('fontPop').onclick = function (e) { e.stopPropagation(); };
+
+  // ---- modals ----
+  function openM(id) { $(id).classList.add('open'); }
+  function closeM(id) { $(id).classList.remove('open'); }
+  document.querySelectorAll('[data-close]').forEach(function (b) { b.onclick = function () { b.closest('.modal').classList.remove('open'); }; });
+  document.querySelectorAll('.modal').forEach(function (m) { m.onclick = function (e) { if (e.target === m) m.classList.remove('open'); }; });
+
+  $('btnSaveAs').onclick = function () { $('saveAsName').value = (Grid.getDoc().name || '') + ' ' + new Date().toLocaleDateString('th-TH'); openM('mSaveAs'); setTimeout(function(){ $('saveAsName').focus(); $('saveAsName').select(); }, 50); };
+  $('saveAsOk').onclick = function () {
+    var nm = $('saveAsName').value.trim();
+    var d = Grid.getDoc(); d.name = nm || d.name;
+    Grid.saveAs(nm); closeM('mSaveAs'); refreshMeta();
+  };
+  $('saveAsName').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('saveAsOk').click(); });
+
+  $('btnVersions').onclick = function () { renderVersions(); openM('mVersions'); };
+  $('btnNewFromSrc').onclick = function () { if (confirm('แทนที่ข้อมูลปัจจุบันด้วยต้นฉบับจาก Excel?')) { Grid.newFromSource(); closeM('mVersions'); refreshMeta(); } };
+
+  function renderVersions() {
+    var vs = XLS.store.loadVersions(), host = $('vList');
+    if (!vs.length) { host.innerHTML = '<div class="empty">ยังไม่มีเวอร์ชันที่บันทึก — กด “บันทึกเป็น…” เพื่อเก็บสำเนา</div>'; return; }
+    host.innerHTML = '';
+    vs.forEach(function (v) {
+      var row = document.createElement('div'); row.className = 'vrow';
+      row.innerHTML = '<div><div class="vn">' + esc(v.name) + '</div><div class="vt">' + new Date(v.savedAt).toLocaleString('th-TH') + '</div></div>' +
+        '<div class="sp"><button class="mini" data-open>เปิด</button><button class="mini del" data-del>ลบ</button></div>';
+      row.querySelector('[data-open]').onclick = function () { Grid.openVersion(v.id); closeM('mVersions'); refreshMeta(); };
+      row.querySelector('[data-del]').onclick = function () { if (confirm('ลบเวอร์ชัน “' + v.name + '”?')) { XLS.store.deleteVersion(v.id); renderVersions(); } };
+      host.appendChild(row);
+    });
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  // warn before leaving if dirty
+  window.addEventListener('beforeunload', function (e) { if (Grid.isDirty()) { e.preventDefault(); e.returnValue = ''; } });
+})();
+</script>
+</body>
+</html>

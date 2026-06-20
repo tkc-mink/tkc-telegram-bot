@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>คู่มือเชื่อม Google Drive — โปรแกรมราคายาง</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&family=Prompt:wght@500;600;700;800&display=swap" />
+<style>
+  :root {
+    --orange: #F47C20; --orange-d: #C75B00; --ink: #2a2622; --muted: #7a736b;
+    --line: #e9e2d8; --cream: #FFF8F1; --warm: #FFF3E6; --paper: #fffdfa;
+    --blue: #1a73e8; --green: #1f8a4c;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #efe9e1; color: var(--ink);
+    font-family: 'Sarabun', system-ui, sans-serif; line-height: 1.7; font-size: 16px; }
+  .page { max-width: 880px; margin: 0 auto; background: var(--paper); }
+  .wrap { padding: 0 clamp(20px, 5vw, 64px); }
+
+  /* hero */
+  .hero { background: linear-gradient(135deg, #F47C20, #E0641A); color: #fff;
+    padding: clamp(34px, 6vw, 60px) clamp(20px, 5vw, 64px) clamp(30px, 5vw, 48px); }
+  .hero .kicker { font-family: 'Prompt'; font-weight: 600; font-size: 13px; letter-spacing: 2px;
+    text-transform: uppercase; opacity: .9; }
+  .hero h1 { font-family: 'Prompt'; font-weight: 800; font-size: clamp(26px, 5vw, 40px);
+    margin: 8px 0 10px; line-height: 1.15; }
+  .hero p { margin: 0; font-size: clamp(15px, 2.4vw, 18px); max-width: 60ch; opacity: .96; }
+  .hero .meta { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .pill { background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.32);
+    border-radius: 999px; padding: 6px 14px; font-size: 13.5px; font-weight: 600; }
+
+  /* intro box */
+  .why { background: var(--warm); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; margin: 30px 0 8px; }
+  .why h3 { font-family: 'Prompt'; margin: 0 0 6px; font-size: 17px; color: var(--orange-d); }
+  .why p { margin: 0; font-size: 15px; }
+  .why b { color: var(--ink); }
+
+  /* part header */
+  .part { display: flex; align-items: center; gap: 14px; margin: 46px 0 6px; }
+  .part .pn { flex: none; width: 46px; height: 46px; border-radius: 13px;
+    background: var(--ink); color: #fff; font-family: 'Prompt'; font-weight: 800; font-size: 20px;
+    display: grid; place-items: center; }
+  .part h2 { font-family: 'Prompt'; font-weight: 800; font-size: clamp(20px, 3.4vw, 26px); margin: 0; }
+  .part .sub { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+  .part.blue .pn { background: var(--blue); }
+  .part.green .pn { background: var(--green); }
+
+  .timeline { border-left: 2px dashed var(--line); margin: 18px 0 8px 22px; padding-left: 0; }
+  .step { position: relative; padding: 4px 0 22px 34px; }
+  .step::before { content: counter(s); counter-increment: s;
+    position: absolute; left: -16px; top: 0; width: 30px; height: 30px; border-radius: 50%;
+    background: #fff; border: 2px solid var(--orange); color: var(--orange-d);
+    font-family: 'Prompt'; font-weight: 800; font-size: 14px; display: grid; place-items: center; }
+  .timeline { counter-reset: s; }
+  .timeline.blue .step::before { border-color: var(--blue); color: var(--blue); }
+  .timeline.green .step::before { border-color: var(--green); color: var(--green); }
+  .step h4 { font-family: 'Prompt'; font-weight: 700; font-size: 17px; margin: 2px 0 6px; }
+  .step p { margin: 0 0 7px; font-size: 15px; }
+  .step ul { margin: 6px 0; padding-left: 20px; }
+  .step li { margin: 3px 0; font-size: 14.5px; }
+
+  .ui { display: inline-block; background: #f1ece5; border: 1px solid #ddd4c8; border-radius: 6px;
+    padding: 1px 8px; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .ui.act { background: #e8f0fe; border-color: #c3d6fb; color: #1558c2; }
+  code, .mono { font-family: 'Consolas', ui-monospace, monospace; background: #f4efe8;
+    border: 1px solid #e6ddd0; border-radius: 5px; padding: 1px 7px; font-size: 13.5px; word-break: break-all; }
+
+  .note { border-radius: 10px; padding: 12px 15px; margin: 10px 0; font-size: 14px; display: flex; gap: 10px; }
+  .note .i { flex: none; font-size: 17px; line-height: 1.5; }
+  .note.tip { background: #eefaf1; border: 1px solid #cdeed7; }
+  .note.warn { background: #FFF6E6; border: 1px solid #F3D9A6; }
+  .note.key { background: #e8f0fe; border: 1px solid #c3d6fb; }
+  .note b { font-weight: 700; }
+
+  .field { background: var(--cream); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 15px; margin: 10px 0; font-size: 14px; }
+  .field .lab { font-family: 'Prompt'; font-weight: 700; font-size: 13px; color: var(--orange-d); margin-bottom: 3px; }
+  .field .val { font-family: 'Consolas', monospace; font-size: 13.5px; color: #444; }
+
+  /* final */
+  .final { background: var(--ink); color: #fff; border-radius: 18px;
+    padding: clamp(24px, 4vw, 38px); margin: 44px 0 10px; }
+  .final h2 { font-family: 'Prompt'; font-weight: 800; margin: 0 0 8px; font-size: 24px; }
+  .final p { margin: 0 0 14px; opacity: .92; font-size: 15.5px; }
+  .final .box { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
+    border-radius: 12px; padding: 16px 18px; font-family: 'Consolas', monospace; font-size: 14px; }
+  .final .box .ph { color: #FFB061; }
+
+  footer { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 20px 44px; }
+  .chk { color: var(--green); font-weight: 700; }
+  a { color: var(--blue); }
+
+  @media print {
+    body { background: #fff; font-size: 12pt; }
+    .page { max-width: none; }
+    .part { break-inside: avoid; } .step { break-inside: avoid; }
+    .hero { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .final, .hero, .part .pn, .step::before { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero">
+    <div class="kicker">DPL Price List · Setup Guide</div>
+    <h1>เชื่อมโปรแกรมราคายางเข้ากับ Google Drive</h1>
+    <p>คู่มือจับมือทำ 2 ส่วน — โฮสต์ไฟล์ให้เปิดได้ทุกเครื่อง แล้วเปิดสิทธิ์ Google Drive ใช้เวลารวมประมาณ 20–30 นาที ทำครั้งเดียวจบ</p>
+    <div class="meta">
+      <span class="pill">⏱️ ~25 นาที</span>
+      <span class="pill">💸 ฟรีทั้งหมด</span>
+      <span class="pill">🔁 ทำครั้งเดียว</span>
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="why">
+      <h3>ทำไมต้องมี 2 ส่วนนี้ก่อน?</h3>
+      <p>Google บังคับว่าหน้าเว็บที่จะต่อ Drive ได้ ต้องเปิดผ่าน <b>https://</b> (ไม่ใช่ดับเบิลคลิกไฟล์) — และการที่ <b>หลายเครื่องเห็นข้อมูลตรงกัน</b> ก็ต้องมีที่อยู่ (URL) กลางอยู่แล้ว ดังนั้น <b>ส่วนที่ 1 (โฮสต์)</b> จึงเป็นรากฐานที่เลี่ยงไม่ได้ ส่วน <b>ส่วนที่ 2 (สิทธิ์ Drive)</b> คือกุญแจให้โปรแกรมอ่าน-เขียนไฟล์ใน Drive ของคุณได้</p>
+    </div>
+
+    <!-- PART 1 -->
+    <div class="part">
+      <div class="pn">1</div>
+      <div>
+        <h2>โฮสต์ไฟล์บน GitHub Pages</h2>
+        <div class="sub">เอาโปรแกรมขึ้นเว็บฟรี เพื่อให้ได้ลิงก์ https:// ที่เปิดได้ทุกเครื่อง</div>
+      </div>
+    </div>
+
+    <div class="timeline">
+      <div class="step">
+        <h4>สมัคร GitHub (ถ้ายังไม่มี)</h4>
+        <p>เข้า <a href="https://github.com/signup">github.com/signup</a> สมัครด้วยอีเมล ฟรี — เป็นที่เก็บโค้ด/เว็บที่ใช้กันทั่วโลก</p>
+      </div>
+
+      <div class="step">
+        <h4>สร้างที่เก็บไฟล์ (Repository) ใหม่</h4>
+        <p>กดปุ่ม <span class="ui">+</span> มุมขวาบน → <span class="ui">New repository</span></p>
+        <ul>
+          <li>ช่อง <b>Repository name</b> ตั้งชื่อสั้นๆ เป็นภาษาอังกฤษ เช่น <code>tire-price</code></li>
+          <li>เลือก <span class="ui">Public</span> (จำเป็น — Pages ฟรีต้องเป็นสาธารณะ · แต่ไม่ต้องห่วง ไฟล์ข้อมูลราคาจริงอยู่บน Drive ส่วนตัว ไม่ได้อยู่ในนี้)</li>
+          <li>กด <span class="ui">Create repository</span></li>
+        </ul>
+      </div>
+
+      <div class="step">
+        <h4>เปลี่ยนชื่อไฟล์หลักเป็น <code>index.html</code></h4>
+        <p>ก่อนอัปโหลด ให้เปลี่ยนชื่อไฟล์ <code>โปรแกรมแก้ราคายาง Excel v2.html</code> เป็น <code>index.html</code> — เพื่อให้ลิงก์สั้นสวย เปิดได้เลยไม่ต้องต่อท้ายชื่อไฟล์ยาวๆ</p>
+        <div class="note tip"><span class="i">💡</span><div>ผมเปลี่ยนชื่อให้ได้เลยถ้าต้องการ — บอกมาได้ทันที</div></div>
+      </div>
+
+      <div class="step">
+        <h4>อัปโหลดไฟล์โปรแกรมทั้งหมด</h4>
+        <p>ในหน้า repo กด <span class="ui">Add file</span> → <span class="ui">Upload files</span> แล้ว <b>ลากทั้งโฟลเดอร์โปรแกรม</b> เข้าไป ต้องมีครบ:</p>
+        <ul>
+          <li><code>index.html</code> (ไฟล์หลักที่เปลี่ยนชื่อแล้ว)</li>
+          <li>โฟลเดอร์ <code>app-xls2/</code> ทั้งโฟลเดอร์ (css + js ทั้งหมด)</li>
+          <li>โฟลเดอร์ <code>app-xls/</code> (ไฟล์ข้อมูลตั้งต้น)</li>
+        </ul>
+        <p>เลื่อนลงล่าง กด <span class="ui">Commit changes</span></p>
+        <div class="note warn"><span class="i">⚠️</span><div>ต้องอัปโฟลเดอร์ <code>app-xls2/</code> และ <code>app-xls/</code> ขึ้นไปด้วย ไม่ใช่แค่ไฟล์ html อย่างเดียว ไม่งั้นจะหน้าขาว</div></div>
+      </div>
+
+      <div class="step">
+        <h4>เปิดใช้งาน GitHub Pages</h4>
+        <ul>
+          <li>ในหน้า repo กดแท็บ <span class="ui">Settings</span></li>
+          <li>เมนูซ้าย กด <span class="ui">Pages</span></li>
+          <li>หัวข้อ <b>Branch</b> เลือก <span class="ui">main</span> และโฟลเดอร์ <span class="ui">/ (root)</span> แล้วกด <span class="ui">Save</span></li>
+        </ul>
+        <p>รอสัก 1–2 นาที รีเฟรชหน้า จะได้ลิงก์เว็บของคุณ หน้าตาแบบนี้:</p>
+        <div class="field">
+          <div class="lab">🔗 ลิงก์เว็บของคุณ (URL)</div>
+          <div class="val">https://<b>ชื่อบัญชี</b>.github.io/<b>tire-price</b>/</div>
+        </div>
+        <div class="note tip"><span class="i">✅</span><div>ลองเปิดลิงก์นี้ในมือถือ/อีกเครื่อง — ถ้าโปรแกรมขึ้นปกติ = ส่วนที่ 1 เสร็จ! <b>เก็บลิงก์นี้ไว้ ใช้ต่อในส่วนที่ 2</b></div></div>
+      </div>
+    </div>
+
+    <!-- PART 2 -->
+    <div class="part blue">
+      <div class="pn">2</div>
+      <div>
+        <h2>เปิดสิทธิ์ Google Drive (OAuth)</h2>
+        <div class="sub">สร้าง “กุญแจ” ให้โปรแกรมอ่าน-เขียนไฟล์ใน Drive ของคุณได้อย่างปลอดภัย</div>
+      </div>
+    </div>
+
+    <div class="timeline blue">
+      <div class="step">
+        <h4>เข้า Google Cloud Console</h4>
+        <p>เปิด <a href="https://console.cloud.google.com">console.cloud.google.com</a> ล็อกอินด้วยบัญชี Google <b>เดียวกับ Drive ที่อยากให้เก็บไฟล์</b></p>
+      </div>
+
+      <div class="step">
+        <h4>สร้างโปรเจกต์ใหม่</h4>
+        <p>มุมซ้ายบน กดเมนูเลือกโปรเจกต์ (ข้างคำว่า Google Cloud) → <span class="ui">New Project</span> → ตั้งชื่อ เช่น <code>TirePrice</code> → <span class="ui">Create</span> → รอสักครู่แล้วเลือกโปรเจกต์นี้</p>
+      </div>
+
+      <div class="step">
+        <h4>เปิดใช้งาน Google Drive API</h4>
+        <ul>
+          <li>เมนูซ้าย (☰) → <span class="ui">APIs &amp; Services</span> → <span class="ui">Library</span></li>
+          <li>ค้นคำว่า <code>Google Drive API</code> → กดเข้าไป → กด <span class="ui act">Enable</span></li>
+        </ul>
+      </div>
+
+      <div class="step">
+        <h4>ตั้งค่าหน้าจอขออนุญาต (OAuth consent screen)</h4>
+        <ul>
+          <li>เมนูซ้าย → <span class="ui">APIs &amp; Services</span> → <span class="ui">OAuth consent screen</span></li>
+          <li>เลือกประเภท <span class="ui">External</span> → <span class="ui">Create</span></li>
+          <li>กรอกชื่อแอป เช่น <code>โปรแกรมราคายาง</code> · ใส่อีเมลของคุณในช่อง support email และ developer email · ที่เหลือข้ามได้ กด <span class="ui">Save and Continue</span> ไปจนจบ</li>
+          <li>หน้า <b>Test users</b> → <span class="ui">Add users</span> → ใส่ <b>อีเมล Google ของคุณ</b> (และเครื่อง/คนที่จะใช้) → Save</li>
+        </ul>
+        <div class="note tip"><span class="i">💡</span><div>ใส่อีเมลตัวเองใน Test users ก็พอ ใช้งานได้เลยไม่ต้องส่ง Google ตรวจ (เหมาะกับใช้ส่วนตัว/ในร้าน)</div></div>
+      </div>
+
+      <div class="step">
+        <h4>สร้าง OAuth Client ID</h4>
+        <ul>
+          <li>เมนูซ้าย → <span class="ui">APIs &amp; Services</span> → <span class="ui">Credentials</span></li>
+          <li>กด <span class="ui">+ Create Credentials</span> → <span class="ui">OAuth client ID</span></li>
+          <li>ช่อง <b>Application type</b> เลือก <span class="ui">Web application</span></li>
+          <li>หัวข้อ <b>Authorized JavaScript origins</b> → <span class="ui">+ Add URI</span> → ใส่ <b>เฉพาะส่วนต้นของลิงก์</b> (ไม่เอาชื่อ repo/ท้ายสุด):</li>
+        </ul>
+        <div class="field">
+          <div class="lab">ใส่ในช่อง Authorized JavaScript origins</div>
+          <div class="val">https://<b>ชื่อบัญชี</b>.github.io</div>
+        </div>
+        <div class="note warn"><span class="i">⚠️</span><div>สำคัญ: ช่องนี้ใส่แค่ <code>https://ชื่อบัญชี.github.io</code> เท่านั้น <b>ห้ามมี</b> <code>/tire-price/</code> ต่อท้าย และห้ามมี <code>/</code> ปิดท้าย</div></div>
+        <p>กด <span class="ui">Create</span></p>
+      </div>
+
+      <div class="step">
+        <h4>คัดลอก Client ID</h4>
+        <p>จะมีหน้าต่างเด้งขึ้นมาพร้อม <b>Your Client ID</b> หน้าตาแบบนี้ — กดคัดลอกเก็บไว้:</p>
+        <div class="field">
+          <div class="lab">🔑 Client ID (หน้าตาประมาณนี้)</div>
+          <div class="val">8124xxxxxxxx-abcd1234efgh5678.apps.googleusercontent.com</div>
+        </div>
+        <div class="note key"><span class="i">🔑</span><div><b>นี่คือสิ่งเดียวที่ผมต้องการ</b> — ส่ง Client ID นี้กลับมาให้ผม แล้วผมจะเขียนระบบซิงค์ Drive + เทสต์ให้จบทันที (Client ID ไม่ใช่รหัสลับ ใช้ฝั่งหน้าเว็บได้ ปลอดภัย)</div></div>
+      </div>
+    </div>
+
+    <!-- FINAL -->
+    <div class="final">
+      <h2>✅ เสร็จแล้ว — ส่ง 2 อย่างนี้กลับมาให้ผม</h2>
+      <p>พอได้ครบ ผมจะเขียน Google Drive sync ต่อให้จบทีละเฟส (เชื่อม → ซิงค์อัตโนมัติ → เก็บประวัติขึ้น cloud)</p>
+      <div class="box">
+        1) ลิงก์เว็บ &nbsp;→&nbsp; <span class="ph">https://ชื่อบัญชี.github.io/tire-price/</span><br><br>
+        2) Client ID &nbsp;→&nbsp; <span class="ph">xxxx-xxxx.apps.googleusercontent.com</span>
+      </div>
+    </div>
+
+    <div class="why" style="margin-top:30px;">
+      <h3>ติดตรงไหน บอกได้ทุกขั้น</h3>
+      <p>ถ้าทำขั้นไหนแล้วงงหรือหน้าจอไม่เหมือนในคู่มือ <b>แคปหน้าจอส่งมา</b> ผมช่วยดูให้ทีละจุด — หรือถ้าอยากให้ผมเปลี่ยนชื่อไฟล์หลักเป็น <code>index.html</code> ให้ก่อน ก็บอกได้เลย</p>
+    </div>
+
+  </div>
+
+  <footer>
+    คู่มือเชื่อม Google Drive · โปรแกรมราคายาง DPL · ทำครั้งเดียว ใช้ได้ตลอด
+  </footer>
+
+</div>
+</body>
+</html>
