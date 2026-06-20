@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>แก้ราคายาง — Excel เต็มรูปแบบ (v2)</title>
+<!-- ===== PWA: ติดตั้งลงจอโฮม + ออฟไลน์ + เต็มจอ ===== -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1a222e" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="ราคายาง" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&family=Prompt:wght@400;700&family=Kanit:wght@400;700&family=Noto+Sans+Thai:wght@400;700&display=swap" />
+<!-- CSS แยกจาก xls2.css เดิม · เรียง 01→06 (ห้ามสลับลำดับ — cascade) -->
+<link rel="stylesheet" href="app-xls2/css-01-base-grid.css" />
+<link rel="stylesheet" href="app-xls2/css-02-windows.css" />
+<link rel="stylesheet" href="app-xls2/css-03-pickers-dialogs.css" />
+<link rel="stylesheet" href="app-xls2/css-04-toolbar-misc.css" />
+<link rel="stylesheet" href="app-xls2/css-05-darkmode-images.css" />
+<link rel="stylesheet" href="app-xls2/css-06-refinements.css" />
+</head>
+<body>
+<div class="app">
+
+  <div class="ribbon">
+    <div class="brand">
+      <image-slot id="brand-logo" class="logo-img" shape="rounded" radius="8" fit="contain" nochrome placeholder="โลโก้" title="ลากรูปโลโก้ร้านมาวาง หรือคลิกเพื่อเลือกไฟล์"></image-slot>
+      <div class="ttl" id="brandTtl">แก้ราคายาง v2<small>Excel เต็มรูปแบบ</small></div>
+    </div>
+
+    <!-- กล่องเครื่องมือกว้างคงที่ — wrap เหมือนกันทุกขนาดหน้าต่าง (▼/โลโก้/สถานะไม่ขยับ) -->
+    <div class="rb-tools">
+
+    <div class="grp">
+      <button class="btn primary" id="btnQuickSave" title="บันทึก (Ctrl+S)"><span class="ic">💾</span></button>
+      <button class="btn" id="btnReload" title="รีโหลดโปรแกรม (โหลดเวอร์ชันล่าสุด ล้างแคช)"><span class="ic">🔄</span></button>
+      <div class="swatchwrap">
+        <button class="btn" id="btnFile" title="ไฟล์ — บันทึก / บันทึกเป็นชื่อใหม่ / เปิดไฟล์เก่า"><span class="ic">🗂️</span><span class="tx">ไฟล์</span> ▾</button>
+        <div class="swpop filepop" id="filePop">
+          <div class="lbl">จัดการไฟล์</div>
+          <button class="btn" id="btnSaveAs" title="บันทึกเป็นชื่อ/เวอร์ชันใหม่ (เก็บสำเนาแยก)"><span class="ic">🆕</span><span class="tx">บันทึกเป็นชื่อใหม่…</span></button>
+          <button class="btn" id="btnVersions" title="เปิดไฟล์/เวอร์ชันที่บันทึกไว้ · โหลดต้นฉบับ"><span class="ic">🕓</span><span class="tx">เปิดไฟล์เก่า…</span></button>
+          <button class="btn" id="btnBackup" title="ดาวน์โหลดไฟล์สำรองข้อมูลทั้งหมดลงเครื่อง (.json) — เก็บไว้กันข้อมูลหาย / ย้ายเครื่อง"><span class="ic">💾</span><span class="tx">สำรองลงเครื่อง…</span></button>
+          <button class="btn" id="btnRestore" title="กู้คืนข้อมูลจากไฟล์สำรอง (.json) — แทนที่ข้อมูลปัจจุบัน"><span class="ic">♻️</span><span class="tx">กู้คืนจากไฟล์…</span></button>
+          <button class="btn" id="btnGDrive" title="ซิงค์ข้อมูลขึ้น Google Drive — เก็บบนคลาวด์ เปิดได้ทุกเครื่อง"><span class="ic">☁️</span><span class="tx">Google Drive…</span></button>
+          <input type="file" id="restoreFile" accept=".json,application/json" style="display:none;" />
+        </div>
+      </div>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="btnUndo" title="ย้อนกลับ (Ctrl+Z)"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><path d="M5.5 6H10a3.6 3.6 0 0 1 0 7.2H6" fill="none" stroke="#333" stroke-width="2.1" stroke-linecap="round"></path><path d="M6.7 3L3 6l3.7 3" fill="none" stroke="#333" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path></svg></span></button>
+      <button class="btn" id="btnRedo" title="ทำซ้ำ (Ctrl+Y)"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><path d="M10.5 6H6a3.6 3.6 0 0 0 0 7.2h4" fill="none" stroke="#333" stroke-width="2.1" stroke-linecap="round"></path><path d="M9.3 3L13 6l-3.7 3" fill="none" stroke="#333" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path></svg></span></button>
+    </div>
+
+    <div class="grp grp-fx">
+      <div class="namebox" id="nameBox">A1</div>
+      <span class="fxlab">fx</span>
+      <input id="fx" placeholder="พิมพ์ค่า หรือสูตร เช่น =H9-G9 · =COGS(G9)" autocomplete="off" />
+    </div>
+
+    <div class="grp grp-status">
+      <div class="gs-r1">
+        <button class="schedchip" id="schedChip" title="ตั้งเวลาที่ราคาชุดนี้จะเริ่มมีผลใน DB">⏱ ทันที</button>
+        <button class="schedchip" id="condChip" title="ตั้งค่า — สี ± Margin · ออโต้เซฟ · Telegram/AI · ธีม · คีย์ลัด">⚙️</button>
+      </div>
+      <div class="gs-r2">
+        <button class="dbsrc dbsrc-mock" id="dbSrcBadge" title="แหล่งข้อมูลที่ใช้อยู่ — คลิกเพื่อตั้งค่าการเชื่อมต่อ"><span class="dbsrc-dot"></span><span class="dbsrc-txt">จำลอง</span></button>
+        <span id="saveState" class="clean">✓ บันทึกแล้ว</span>
+      </div>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="btnAddSize" title="เพิ่มขนาดยางใหม่ต่อท้ายกลุ่มปัจจุบัน"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><circle cx="6.6" cy="8.4" r="5.1" fill="none" stroke="#333" stroke-width="1.6"></circle><circle cx="6.6" cy="8.4" r="1.9" fill="none" stroke="#333" stroke-width="1.6"></circle><circle cx="12.6" cy="3.8" r="3.3" fill="#0a8f3c"></circle><path d="M12.6 2.3v3M11.1 3.8h3" stroke="#fff" stroke-width="1.3"></path></svg></span><span class="tx">เพิ่มขนาด</span></button>
+      <button class="btn danger" id="btnDelSize" title="ลบขนาดยางทั้งกลุ่มที่เลือก"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><circle cx="6.6" cy="8.4" r="5.1" fill="none" stroke="#333" stroke-width="1.6"></circle><circle cx="6.6" cy="8.4" r="1.9" fill="none" stroke="#333" stroke-width="1.6"></circle><circle cx="12.6" cy="3.8" r="3.3" fill="#d62828"></circle><path d="M11.5 2.7l2.2 2.2M13.7 2.7l-2.2 2.2" stroke="#fff" stroke-width="1.3"></path></svg></span><span class="tx">ลบขนาด</span></button>
+      <button class="btn" id="btnAddModel" title="เพิ่มรุ่นใหม่ใต้แถวที่เลือก (ในกลุ่มขนาดเดิม พร้อมสูตรครบ)"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="1.5" y="3" width="9" height="1.9" rx="0.6" fill="#333"></rect><rect x="1.5" y="6.7" width="9" height="1.9" rx="0.6" fill="#333"></rect><rect x="1.5" y="10.4" width="6" height="1.9" rx="0.6" fill="#bbb"></rect><circle cx="12.6" cy="11.2" r="3.4" fill="#0a8f3c"></circle><path d="M12.6 9.7v3M11.1 11.2h3" stroke="#fff" stroke-width="1.3"></path></svg></span><span class="tx">เพิ่มรุ่น</span></button>
+      <button class="btn danger" id="btnDelRow" title="ลบแถวที่เลือก"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="1.5" y="3" width="9" height="1.9" rx="0.6" fill="#333"></rect><rect x="1.5" y="6.7" width="9" height="1.9" rx="0.6" fill="#333"></rect><rect x="1.5" y="10.4" width="6" height="1.9" rx="0.6" fill="#bbb"></rect><circle cx="12.6" cy="11.2" r="3.4" fill="#d62828"></circle><path d="M11.5 10.1l2.2 2.2M13.7 10.1l-2.2 2.2" stroke="#fff" stroke-width="1.3"></path></svg></span><span class="tx">ลบแถว</span></button>
+      <button class="btn" id="btnMerge" title="ผสาน/ยกเลิกผสานเซลล์ที่เลือก"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1" fill="none" stroke="#333" stroke-width="1.3"></rect><path d="M8 3.7v1.7M8 10.6v1.7" stroke="#333" stroke-width="1.2" stroke-dasharray="1.4 1.2"></path><path d="M5.4 8h5.2" stroke="#F47C20" stroke-width="1.3"></path><path d="M7 6.4L5.4 8 7 9.6M9 6.4L10.6 8 9 9.6" fill="none" stroke="#F47C20" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span class="tx">ผสาน</span></button>
+      <div class="swatchwrap">
+        <button class="btn" id="btnBorder" title="ตีเส้นตารางให้ช่องที่เลือก (แบบ Excel) · ไอคอนแสดงสี/ลายเส้นที่เลือกอยู่"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="2" y="1.4" width="12" height="11" fill="none" stroke="#7a7a7a" stroke-width="1"></rect><line x1="2" y1="6.9" x2="14" y2="6.9" stroke="#9a9a9a" stroke-width="0.9"></line><line x1="8" y1="1.4" x2="8" y2="12.4" stroke="#9a9a9a" stroke-width="0.9"></line><line id="bdIH" x1="2" y1="6.9" x2="14" y2="6.9" stroke="transparent" stroke-width="1.3"></line><line id="bdIV" x1="8" y1="1.4" x2="8" y2="12.4" stroke="transparent" stroke-width="1.3"></line><line id="bdT" x1="1.6" y1="1.4" x2="14.4" y2="1.4" stroke="transparent" stroke-width="1.8"></line><line id="bdB" x1="1.6" y1="12.4" x2="14.4" y2="12.4" stroke="#000" stroke-width="1.8"></line><line id="bdL" x1="2" y1="1" x2="2" y2="12.8" stroke="transparent" stroke-width="1.8"></line><line id="bdR" x1="14" y1="1" x2="14" y2="12.8" stroke="transparent" stroke-width="1.8"></line><rect id="bdColorBar" x="1.6" y="14" width="12.8" height="2" rx="0.6" fill="#000"></rect></svg></span><span class="tx">เส้นขอบ</span><span class="fc-caret">▾</span></button>
+        <div class="swpop bdpop" id="bdPop">
+          <div class="lbl">ตีเส้นช่องที่เลือก</div>
+          <div class="lbl" style="margin-top:2px;">สีเส้น:</div>
+          <div class="bd-opts" id="bdColors">
+            <span class="sw bd-c on" data-bdc="000000" style="background:#000;" title="ดำ"></span>
+            <span class="sw bd-c" data-bdc="FF0000" style="background:#FF0000;" title="แดง"></span>
+            <span class="sw bd-c" data-bdc="0000FF" style="background:#0000FF;" title="น้ำเงิน"></span>
+            <span class="sw bd-c" data-bdc="008000" style="background:#008000;" title="เขียว"></span>
+            <span class="sw bd-c" data-bdc="F47C20" style="background:#F47C20;" title="ส้ม"></span>
+            <span class="sw bd-c" data-bdc="7F1D9B" style="background:#7F1D9B;" title="ม่วง"></span>
+            <span class="sw bd-c" data-bdc="C0A000" style="background:#C0A000;" title="ทอง"></span>
+            <span class="sw bd-c" data-bdc="888888" style="background:#888888;" title="เทา"></span>
+          </div>
+          <div class="lbl" style="margin-top:4px;">จานสีของฉัน <small style="opacity:.55;font-weight:400;">· คลิกขวาเพื่อลบ</small></div>
+          <div class="bd-mypal" id="bdMyPal"></div>
+          <div class="lbl">ลายเส้น:</div>
+          <div class="bd-opts bdstyle-grid" id="bdStyles">
+            <span class="bd-s on" data-bds="solid" style="--st:solid" title="เส้นทึบ"></span>
+            <span class="bd-s" data-bds="dotted" style="--st:dotted" title="จุด"></span>
+            <span class="bd-s" data-bds="dashed" style="--st:dashed" title="ประห่าง"></span>
+            <span class="bd-s" data-bds="double" style="--st:double" title="เส้นคู่"></span>
+            <span class="bd-s" data-bds="groove" style="--st:groove" title="ร่อง"></span>
+            <span class="bd-s" data-bds="ridge" style="--st:ridge" title="สัน"></span>
+            <span class="bd-s" data-bds="inset" style="--st:inset" title="จม"></span>
+            <span class="bd-s" data-bds="outset" style="--st:outset" title="นูน"></span>
+            <span class="bd-s" data-bds="dashed-thick" style="--st:dashed" title="ประหนา"></span>
+          </div>
+          <div class="lbl">ความหนาเส้น:</div>
+          <div class="bd-opts" id="bdWeights">
+            <span class="bd-w" data-bdw="0.5" title="บางพิเศษ (เส้นผม)"><i style="height:0.5px;"></i>บาง</span>
+            <span class="bd-w on" data-bdw="1" title="ปกติ 1px"><i style="height:1px;"></i>ปกติ</span>
+            <span class="bd-w" data-bdw="2" title="หนา 2px"><i style="height:2px;"></i>หนา</span>
+            <span class="bd-w" data-bdw="3" title="หนาพิเศษ 3px"><i style="height:3px;"></i>พิเศษ</span>
+          </div>
+          <div class="bd-grid">
+          <div class="bd-it" data-bd="all" title="เส้นขอบทั้งหมด"><span class="bd-box bd-all"></span></div>
+          <div class="bd-it" data-bd="outer" title="เส้นขอบนอก"><span class="bd-box bd-outer"></span></div>
+          <div class="bd-it" data-bd="outer-thick" title="เส้นขอบนอกหนา"><span class="bd-box bd-outer-th"></span></div>
+          <div class="bd-it" data-bd="topbottom" title="เส้นบน+ล่าง"><span class="bd-box bd-b"></span></div>
+          <div class="bd-it" data-bd="bottom" title="เส้นล่าง"><span class="bd-box bd-b"></span></div>
+          <div class="bd-it" data-bd="bottom-thick" title="เส้นล่างหนา"><span class="bd-box bd-b-th"></span></div>
+          <div class="bd-it" data-bd="top" title="เส้นบน"><span class="bd-box bd-t"></span></div>
+          <div class="bd-it" data-bd="left" title="เส้นซ้าย"><span class="bd-box bd-l"></span></div>
+          <div class="bd-it" data-bd="right" title="เส้นขวา"><span class="bd-box bd-r"></span></div>
+          </div>
+          <div class="bd-it bd-none-it" data-bd="none"><span class="bd-box"></span>ไม่มีเส้น (คืนเส้นตารางปกติ)</div>
+          <div class="lbl" style="margin-top:5px;">🧽 ยางลบเส้น (ลบทีละด้าน):</div>
+          <div class="bd-grid">
+            <div class="bd-it bd-erase" data-bd="erase-top" title="ลบเส้นบน"><span class="bd-box bd-t"></span></div>
+            <div class="bd-it bd-erase" data-bd="erase-bottom" title="ลบเส้นล่าง"><span class="bd-box bd-b"></span></div>
+            <div class="bd-it bd-erase" data-bd="erase-left" title="ลบเส้นซ้าย"><span class="bd-box bd-l"></span></div>
+            <div class="bd-it bd-erase" data-bd="erase-right" title="ลบเส้นขวา"><span class="bd-box bd-r"></span></div>
+            <div class="bd-it bd-erase" data-bd="erase-all" title="ลบทุกเส้น"><span class="bd-box bd-all"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grp">
+      <select id="fontFam" title="แบบตัวอักษร (ใช้กับช่องที่เลือก)">
+        <option value="">🔤 ฟอนต์</option>
+        <optgroup label="อังกฤษ (แบบ Excel)">
+          <option value="Arial" style="font-family:Arial;">Arial · ค่าเริ่มต้น</option>
+          <option value="Arial Black" style="font-family:'Arial Black';">Arial Black ⭐</option>
+          <option value="Tahoma" style="font-family:Tahoma;">Tahoma</option>
+          <option value="Calibri" style="font-family:Calibri;">Calibri</option>
+          <option value="Cambria" style="font-family:Cambria;">Cambria</option>
+          <option value="Segoe UI" style="font-family:'Segoe UI';">Segoe UI</option>
+          <option value="Times New Roman" style="font-family:'Times New Roman';">Times New Roman</option>
+          <option value="Courier New" style="font-family:'Courier New';">Courier New</option>
+          <option value="Verdana" style="font-family:Verdana;">Verdana</option>
+          <option value="Georgia" style="font-family:Georgia;">Georgia</option>
+          <option value="Impact" style="font-family:Impact;">Impact</option>
+        </optgroup>
+        <optgroup label="ไทย">
+          <option value="Sarabun" style="font-family:Sarabun;">สารบรรณ (Sarabun)</option>
+          <option value="Prompt" style="font-family:Prompt;">พรอมพต์ (Prompt)</option>
+          <option value="Kanit" style="font-family:Kanit;">คนิต (Kanit)</option>
+          <option value="Noto Sans Thai" style="font-family:'Noto Sans Thai';">Noto Sans Thai</option>
+          <option value="Leelawadee UI" style="font-family:'Leelawadee UI';">ลีลาวดี (Leelawadee UI)</option>
+          <option value="Angsana New" style="font-family:'Angsana New';">อังศนา (Angsana New)</option>
+          <option value="Cordia New" style="font-family:'Cordia New';">คอร์เดีย (Cordia New)</option>
+        </optgroup>
+      </select>
+      <span class="fssize" id="fsWrap" title="ขนาดตัวอักษร">
+        <input id="fsBox" inputmode="numeric" value="10" />
+        <span class="fssteps">
+          <button id="btnFsUp" class="fsstep-b" title="เพิ่มขนาดตัวอักษร">▲</button>
+          <button id="btnFsDn" class="fsstep-b" title="ลดขนาดตัวอักษร">▼</button>
+        </span>
+      </span>
+      <button class="btn bld" id="btnBold" title="ตัวหนา (Ctrl+B)">B</button>
+      <button class="btn itl" id="btnItalic" title="ตัวเอียง (Ctrl+I)">I</button>
+      <button class="btn und" id="btnUnder" title="ขีดเส้นใต้ (Ctrl+U)">U</button>
+      <button class="btn" id="btnAlign" title="จัดข้อความ: ชิดซ้าย → กึ่งกลาง → ชิดขวา (คลิกเพื่อสลับ)"><span class="al-ic l"><i></i><i></i><i></i></span></button>
+      <button class="btn" id="btnValign" title="จัดแนวตั้ง: ชิดบน → กึ่งกลาง → ชิดล่าง (คลิกเพื่อสลับ)"><span class="va-ic t"><i></i></span></button>
+      <div class="swatchwrap">
+        <button class="btn" id="btnFill" title="เทสีพื้นช่อง (เลือกสีได้)"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><g transform="rotate(-12 8 8)"><rect class="fill-pool" x="3.2" y="6.2" width="8" height="5.4" rx="1" fill="#FFEB3B" stroke="#333" stroke-width="1.2"></rect><path d="M7.2 1.6v4.6" stroke="#333" stroke-width="1.3" stroke-linecap="round"></path><circle cx="7.2" cy="1.6" r="1" fill="#333"></circle><path d="M3.2 8h8" stroke="#333" stroke-width="1"></path></g><path class="fill-drip" d="M13.4 9.4c.95 1.4 1.5 2.3 1.5 3.05a1.5 1.5 0 1 1-3 0c0-.75.55-1.65 1.5-3.05z" fill="#FFEB3B" stroke="#333" stroke-width="0.8"></path></svg></span><span class="tx">เทสี</span><span class="fc-caret">▾</span></button>
+        <div class="swpop" id="swPop"><div class="lbl">สีพื้นช่อง</div><div class="swgrid" id="swGrid"></div></div>
+      </div>
+      <div class="swatchwrap">
+        <button class="btn" id="btnFont" title="คลิก A = ใช้สีล่าสุด · คลิก ▾ = เลือกสีใหม่"><span class="ic" style="font-weight:800;color:#C00000;">A</span><span class="tx">สีอักษร</span><span class="fc-caret">▾</span></button>
+        <div class="swpop" id="fontPop"><div class="lbl">สีตัวอักษร</div><div class="swgrid" id="fontGrid"></div></div>
+      </div>
+    </div>
+
+    <div class="grp">
+      <button class="btn" id="btnTypeNum" title="กำหนดช่องที่เลือกเป็นตัวเลข"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><text x="8" y="11.4" text-anchor="middle" font-size="9.5" font-weight="800" font-family="Arial,sans-serif" fill="#1d6f42">123</text></svg></span><span class="tx">ตัวเลข</span></button>
+      <button class="btn" id="btnDpUp" title="เพิ่มทศนิยม (เช่น 1,500 → 1,500.0)" style="font-family:Consolas,monospace;font-size:11px;">.00→</button>
+      <button class="btn" id="btnDpDn" title="ลดทศนิยม" style="font-family:Consolas,monospace;font-size:11px;">←.0</button>
+      <button class="btn" id="btnTypeText" title="กำหนดช่องที่เลือกเป็นข้อความ"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><text x="8" y="11.4" text-anchor="middle" font-size="9.5" font-weight="800" font-family="Arial,sans-serif" fill="#2A6FDB">Abc</text></svg></span><span class="tx">ข้อความ</span></button>
+      <button class="btn" id="btnDB" title="ลิงก์ช่องนี้กับฐานข้อมูลด้วยรหัสสินค้า"><span class="ic">🗄️</span><span class="tx">ลิงก์ DB</span></button>
+      <button class="btn primary" id="btnSync" title="อัพเดทราคา — เลือกเวลา → สรุป → ยืนยัน แล้วส่งราคาตั้ง/B/A/S เข้า DB"><span class="ic">📤</span><span class="tx">อัพเดท</span></button>
+    </div>
+
+    <div class="grp">
+      <button class="btn on" id="btnMode" title="สลับโหมด แอดมิน ⇄ ผู้ใช้ (คลิกเพื่อสลับ)"><span class="ic">🛠️</span><span class="tx">แอดมิน</span></button>
+      <div class="swatchwrap">
+        <button class="btn" id="btnMore" title="เครื่องมือเพิ่มเติมฯ (ลากไอคอนมาเก็บได้)"><span class="ic">⋯</span><span class="more-badge" id="moreBadge" style="display:none;"></span></button>
+        <div class="swpop morepop" id="morePop">
+          <div class="lbl">เครื่องมือเพิ่มเติม</div>
+          <button class="btn" id="btnLockRow" title="ซ่อน/แสดงแถวที่เลือกจากผู้ใช้"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="1.3" y="3" width="8.7" height="10" rx="1" fill="none" stroke="#333" stroke-width="1.1"></rect><line x1="1.3" y1="6.3" x2="10" y2="6.3" stroke="#333" stroke-width="1"></line><line x1="1.3" y1="9.7" x2="10" y2="9.7" stroke="#333" stroke-width="1"></line><path d="M11 9V8.1a1.3 1.3 0 0 1 2.6 0V9" fill="none" stroke="#F47C20" stroke-width="1.1"></path><rect x="10.1" y="9" width="4.6" height="4" rx="0.8" fill="#F47C20"></rect></svg></span><span class="tx">ซ่อนแถวจากผู้ใช้</span></button>
+          <button class="btn" id="btnLockCol" title="ซ่อน/แสดงคอลัมน์ที่เลือกจากผู้ใช้"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="1.3" y="3" width="8.7" height="10" rx="1" fill="none" stroke="#333" stroke-width="1.1"></rect><line x1="4.2" y1="3" x2="4.2" y2="13" stroke="#333" stroke-width="1"></line><line x1="7.1" y1="3" x2="7.1" y2="13" stroke="#333" stroke-width="1"></line><path d="M11 9V8.1a1.3 1.3 0 0 1 2.6 0V9" fill="none" stroke="#F47C20" stroke-width="1.1"></path><rect x="10.1" y="9" width="4.6" height="4" rx="0.8" fill="#F47C20"></rect></svg></span><span class="tx">ซ่อนคอลัมน์จากผู้ใช้</span></button>
+          <button class="btn" id="btnSecret" title="ซ่อนเลขในคอลัมน์ 🔒 (เหลือรหัสลับ)"><span class="ic">🙈</span><span class="tx">ซ่อนเลข</span></button>
+          <button class="btn" id="btnTheme" title="สลับโหมดมืด/สว่าง"><span class="ic" id="themeIc">🌙</span><span class="tx">โหมดมืด</span></button>
+          <button class="btn" id="btnKeys" title="คีย์ลัดทั้งหมด + Logitech G-keys"><span class="ic"><svg class="ic-svg" viewBox="0 0 16 16"><rect x="0.8" y="3.6" width="14.4" height="8.8" rx="1.6" fill="none" stroke="#333" stroke-width="1.1"></rect><g fill="#333"><rect x="2.6" y="5.5" width="1.5" height="1.4" rx="0.3"></rect><rect x="5" y="5.5" width="1.5" height="1.4" rx="0.3"></rect><rect x="7.3" y="5.5" width="1.5" height="1.4" rx="0.3"></rect><rect x="9.6" y="5.5" width="1.5" height="1.4" rx="0.3"></rect><rect x="11.9" y="5.5" width="1.5" height="1.4" rx="0.3"></rect><rect x="2.6" y="7.8" width="1.5" height="1.4" rx="0.3"></rect><rect x="5" y="7.8" width="1.5" height="1.4" rx="0.3"></rect><rect x="7.3" y="7.8" width="1.5" height="1.4" rx="0.3"></rect><rect x="9.6" y="7.8" width="1.5" height="1.4" rx="0.3"></rect><rect x="11.9" y="7.8" width="1.5" height="1.4" rx="0.3"></rect><rect x="4.2" y="10.1" width="7.6" height="1.4" rx="0.4"></rect></g></svg></span><span class="tx">คีย์ลัด</span></button>
+          <button class="btn" id="btnImgAdd" title="แนบไฟล์รูปจากเครื่องลงบนตาราง (หรือลากไฟล์/วาง Ctrl+V ก็ได้)"><span class="ic">🖼️</span><span class="tx">แนบรูป</span></button>
+          <button class="btn" id="btnImgSearch" title="ค้นรูปใน Google แล้วคัดลอกมาวาง"><span class="ic">🔎</span><span class="tx">ค้นรูป Google</span></button>
+          <button class="btn" id="btnDupHi" title="ไฮไลต์ค่าที่ซ้ำกัน — ค่าเดียวกันได้สีเดียวกัน (กดอีกครั้งเอาออก)"><span class="ic">🌈</span><span class="tx">ไฮไลต์ค่าซ้ำ</span></button>
+          <button class="btn" id="btnStaging" title="จัดการข้อมูลสินค้าจากฐานข้อมูล (กรอง + เติมแท็ก setSize/ธง)"><span class="ic">🗃️</span><span class="tx">จัดการข้อมูล DB</span></button>
+          <button class="btn" id="btnAudit" title="ประวัติการอัปเดตราคา (audit) + รอบการอัปเดต ก่อน/หลัง"><span class="ic">🧾</span><span class="tx">ประวัติอัปเดตราคา</span></button>
+          <button class="btn" id="btnUsers" title="จัดการผู้ใช้ · สิทธิ์ · ประวัติอุปกรณ์"><span class="ic">👤</span><span class="tx">ผู้ใช้ & สิทธิ์</span></button>
+          <button class="btn" id="btnDeviceReg" title="ลงทะเบียนเครื่องนี้กับทะเบียนกลาง / ดูสถานะ-ตั้งค่า"><span class="ic">📱</span><span class="tx">ลงทะเบียนอุปกรณ์</span></button>
+          <button class="btn" id="btnApi" title="ปลั๊กอินบอท Telegram / AI LOCAL (API)"><span class="ic">🔌</span><span class="tx">Telegram API</span></button>
+          <button class="btn" id="btnPrint" title="พิมพ์ A4 (Ctrl+P)"><span class="ic">🖨️</span><span class="tx">พิมพ์</span></button>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <!-- แถว 2: ช่องค้นหา (ขึ้นมาแทนตำแหน่ง fx เดิม) -->
+  <div class="fxbar">
+    <div class="sheetbar">
+      <select id="sheetSel" class="flt-sel" title="เลือกหมวดยาง" style="font-weight:700;max-width:170px;"></select>
+      <button class="sheet-mini" id="shAdd" title="สร้างหมวดใหม่">➕</button>
+      <button class="sheet-mini" id="shRen" title="แก้ไขชื่อหมวดนี้">✏️</button>
+      <button class="sheet-mini" id="shDel" title="ลบหมวดนี้ (ยืนยัน 2 รอบ + รอ 10 วินาที)">🗑️</button>
+    </div>
+  </div>
+
+  <!-- filter / search bar -->
+  <div class="fltbar" id="fltbar"></div>
+
+  <div id="archBanner" style="display:none;background:#FFF3E6;color:#A34A00;font-weight:700;font-size:12px;padding:7px 12px;border-bottom:1px solid #F3D9A6;display:none;align-items:center;gap:8px;">🔒 กำลังดูไฟล์ประวัติ (หลังอัพเดทราคา) — ดูย้อนหลังได้อย่างเดียว แก้ไขไม่ได้ · เลือกหมวดปกติด้านบนเพื่อกลับไปแก้ไข</div>
+
+  <div class="gridwrap" id="gridwrap">
+    <div id="grid" style="position:relative;display:inline-block;min-width:100%;"></div>
+  </div>
+
+  <div class="statusbar">
+    <span id="status"></span>
+    <span class="sumbox" id="sumbox"></span>
+    <span class="right">
+      <span style="color:#888;">คลิกขวา = เมนูแบบ Excel</span>
+      <button class="zb" id="zOut">−</button><span id="zVal">100%</span><button class="zb" id="zIn">+</button>
+    </span>
+  </div>
+</div>
+
+<div class="sg-ctx" id="ctx"></div>
+
+<div class="modal" id="mSaveAs">
+  <div class="dlg">
+    <h3>บันทึกเป็นเวอร์ชันใหม่</h3>
+    <div class="bd">ตั้งชื่อเวอร์ชันนี้ (เก็บแยก เรียกกลับมาได้)<input id="saveAsName" /></div>
+    <div class="ft"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="saveAsOk">บันทึก</button></div>
+  </div>
+</div>
+
+<div class="modal" id="mVersions">
+  <div class="dlg">
+    <h3>เวอร์ชันที่บันทึกไว้</h3>
+    <div class="bd">
+      <button class="btn" id="btnReset">↺ โหลดต้นฉบับจาก Excel ใหม่</button>
+      <div class="vlist" id="vList"></div>
+    </div>
+    <div class="ft"><button class="btn" data-close>ปิด</button></div>
+  </div>
+</div>
+
+<div class="modal" id="mSched">
+  <div class="dlg">
+    <h3>⏱ ตั้งเวลาเริ่มใช้ราคาชุดนี้</h3>
+    <div class="bd">
+      เมื่อกด “📤 ส่ง DB” ราคาตั้ง/B/A/S ของแถวที่ลิงก์จะไปอัปเดตเป็นราคาขายช่อง 1/2/3/4 ตามเวลาที่ตั้งนี้
+      <input type="datetime-local" id="schedInput" />
+      <div style="margin-top:8px;color:#888;font-size:11px;">ตั้งเฉพาะบางแถว: คลิกขวาที่แถวนั้น → “ตั้งเวลาใช้ราคาเฉพาะแถวนี้”</div>
+    </div>
+    <div class="ft">
+      <button class="btn" id="schedNow">มีผลทันที</button>
+      <button class="btn" data-close>ยกเลิก</button>
+      <button class="btn primary" id="schedOk">บันทึกเวลา</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mCond">
+  <div class="dlg">
+    <h3>⚙️ ตั้งค่า</h3>
+    <div class="settabs">
+      <div class="settab-grp">ทั่วไป</div>
+      <button class="settab on" data-tab="margin">± สี Margin</button>
+      <button class="settab" data-tab="autosave">⏱ ออโต้เซฟ</button>
+      <button class="settab" data-tab="theme">🌙 ธีม</button>
+      <button class="settab" data-tab="keys">⌨️ คีย์ลัด</button>
+      <div class="settab-grp">สีตาราง</div>
+      <button class="settab" data-tab="tablecolors">🎨 สีตาราง (ลาก·คัดลอก·หัวแถว·หัวคอลัมน์)</button>
+      <div class="settab-grp">ฐานข้อมูล</div>
+      <button class="settab" data-tab="dbconn">🔌 เชื่อมต่อ DB</button>
+      <button class="settab" data-tab="dblink">🔗 สีลิงก์ DB</button>
+      <button class="settab" data-tab="dotcolor">🛞 สีปียาง (DOT)</button>
+      <button class="settab" data-tab="dbfields">🗂️ ฟิลด์/หมวด DB</button>
+      <button class="settab" data-tab="staticon">🏷️ ไอคอนสถานะ</button>
+      <button class="settab" data-tab="pricing">💳 กฎราคา/VAT</button>
+      <div class="settab-grp">ขั้นสูง</div>
+      <button class="settab" data-tab="special">🔒 แถว/คอลัมน์พิเศษ</button>
+      <button class="settab" data-tab="backup">💾 สำรอง/กู้คืน</button>
+      <button class="settab" data-tab="api">🔌 Telegram/AI</button>
+    </div>
+    <div class="bd settab-pane" data-pane="margin" id="condTabMargin">
+      <div style="margin-bottom:6px;">Margin เป็นบวก (+) ใช้สี:</div>
+      <div class="swgrid" id="condPosGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div style="margin:12px 0 6px;">Margin ติดลบ (−) ใช้สี:</div>
+      <div class="swgrid" id="condNegGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div style="margin-top:12px;font-size:12px;">ตัวอย่าง: <b id="condPrevPos">+490</b> &nbsp; <b id="condPrevNeg">-250</b></div>
+    </div>
+    <div class="bd settab-pane" data-pane="autosave" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:10px;">ตั้งช่วงเวลาบันทึกอัตโนมัติ (ปัจจุบันแสดงตัวนับถอยหลังที่หัวโปรแกรม)</div>
+      <button class="btn primary" id="setAutosave">⏱ ปรับเวลาออโต้เซฟ…</button>
+    </div>
+    <div class="bd settab-pane" data-pane="api" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:10px;">เชื่อมบอท Telegram / AI LOCAL ผ่าน API (เช็ค/แก้ราคาจากระยะไกล)</div>
+      <button class="btn primary" id="setApi">🔌 เปิดตั้งค่า Telegram API…</button>
+    </div>
+    <div class="bd settab-pane" data-pane="theme" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:10px;">สลับโหมดมืด / สว่าง ของหน้าจอ</div>
+      <button class="btn primary" id="setTheme">🌙 สลับโหมดมืด/สว่าง</button>
+    </div>
+    <div class="bd settab-pane" data-pane="keys" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:10px;">ดูคีย์ลัดทั้งหมด + การตั้งค่าปุ่ม Logitech</div>
+      <button class="btn primary" id="setKeys">⌨️ เปิดตารางคีย์ลัด…</button>
+    </div>
+    <div class="bd settab-pane" data-pane="tablecolors" style="display:none;">
+      <div class="tcsec-h">⬛ สีตอนลากเลือก/ลากคัดลอกช่อง (drag-fill)</div>
+      <div class="marklbl">สีเส้น (ทึบ):</div>
+      <div class="swgrid markgrid" id="dragGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="marklbl">สีพื้นหลัง:</div>
+      <div class="swgrid markgrid" id="dragBgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="markprev"><span class="markprev-cell" id="dragPrev">ตัวอย่าง</span></div>
+      <div class="tcsec-h">✂️ สีตอนคัดลอก/ตัด/วาง</div>
+      <div class="marklbl">สีเส้น (ประวิ่ง):</div>
+      <div class="swgrid markgrid" id="clipGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="marklbl">สีพื้นหลัง:</div>
+      <div class="swgrid markgrid" id="clipBgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="markprev"><span class="markprev-cell" id="clipPrev">ตัวอย่าง</span></div>
+      <div class="tcsec-h">⬅ สีแถบหัวแถว (เลข 1·2·3 ด้านซ้าย)</div>
+      <div class="marklbl">สีพื้นแถบ:</div>
+      <div class="swgrid markgrid" id="rowhdrBgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="marklbl">สีตัวเลขแถว:</div>
+      <div class="swgrid markgrid" id="rowhdrFgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="markprev"><span class="markprev-cell" id="rowhdrPrev" style="outline:none;">1 · 2 · 3</span></div>
+      <div class="tcsec-h">⬆ สีแถบหัวคอลัมน์ (A·B·C ด้านบน)</div>
+      <div class="marklbl">สีพื้นแถบ:</div>
+      <div class="swgrid markgrid" id="colhdrBgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="marklbl">สีตัวอักษรคอลัมน์:</div>
+      <div class="swgrid markgrid" id="colhdrFgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="markprev"><span class="markprev-cell" id="colhdrPrev" style="outline:none;">A · B · C</span></div>
+    </div>
+    <div class="bd settab-pane" data-pane="special" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:8px;">แถว/คอลัมน์ที่ล็อก 🔒 (ซ่อนจากผู้ใช้ · เห็นเฉพาะแอดมิน)</div>
+      <div class="marklbl">สีพื้นหลัง:</div>
+      <div class="swgrid markgrid" id="admBgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="marklbl">สีตัวอักษร:</div>
+      <div class="swgrid markgrid" id="admFgGrid" style="grid-template-columns:repeat(8,1fr);"></div>
+      <div class="marklbl">ลักษณะพื้นหลัง:</div>
+      <div class="patpick" id="admPatPick">
+        <span class="pat-opt" data-pat="stripe">▨ ลายทแยง</span>
+        <span class="pat-opt" data-pat="dots">⠿ จุด</span>
+        <span class="pat-opt" data-pat="none">▭ พื้นเรียบ</span>
+      </div>
+      <div class="marklbl">ไอคอนกำกับ (แทนแม่กุญแจ):</div>
+      <div class="iconpick" id="lockIconPick"></div>
+      <div class="admprev" id="admPrev">ตัวอย่างแถว/คอลัมน์พิเศษ 🔒</div>
+    </div>
+    <div class="bd settab-pane" data-pane="dbconn" style="display:none;">
+      <div class="dbf-intro">เชื่อมต่อฐานข้อมูลสินค้าผ่าน API · ตอนนี้ใช้ <b>ข้อมูลจำลอง (Mock)</b> — สลับเป็น <b>เซิร์ฟเวอร์จริง (HTTP)</b> ได้เมื่อพร้อม</div>
+      <div class="conn-row">
+        <span class="conn-lbl">แหล่งข้อมูล</span>
+        <div class="conn-seg" id="connMode">
+          <button type="button" data-mode="mock" class="on">🧪 จำลอง (Mock)</button>
+          <button type="button" data-mode="http">🌐 เซิร์ฟเวอร์จริง</button>
+        </div>
+      </div>
+      <div id="connHttpFields">
+        <label class="conn-field">Base URL<input id="connUrl" placeholder="https://server.local/api" type="text"></label>
+        <label class="conn-field conn-auth"><span><input type="checkbox" id="connUseAuth"> ใช้ Token (Bearer)</span><input id="connToken" placeholder="วาง token ที่นี่" type="text"></label>
+        <label class="conn-field">Username<input id="connUser" placeholder="Username" type="text"></label>
+        <label class="conn-field" style="position:relative;">Password<input id="connPass" placeholder="Password" type="password" style="padding-right:36px;"><button type="button" title="แสดง/ซ่อนรหัสผ่าน" onclick="var p=document.getElementById('connPass');var s=p.type==='password';p.type=s?'text':'password';this.textContent=s?'🙈':'👁️';" style="position:absolute;right:8px;bottom:5px;border:none;background:none;cursor:pointer;font-size:16px;line-height:1;padding:2px;">👁️</button></label>
+        <label class="conn-field">Flag<input id="connFlag" placeholder="PRICE" type="text" value="PRICE"></label>
+        <label class="conn-field">Timeout (วินาที)<input id="connTimeout" type="number" min="1" max="60" step="1" value="12"></label>
+      </div>
+      <div class="conn-actions">
+        <button class="btn" id="connTest">🔌 ทดสอบการเชื่อมต่อ</button>
+        <button class="btn primary" id="connSave">💾 บันทึก + ใช้งาน</button>
+        <span class="conn-status" id="connStatus"></span>
+      </div>
+      <div class="conn-note">💡 บันทึกแล้วระบบจะดึงข้อมูลจากแหล่งที่เลือกทันที · กฎเหล็ก: เขียนกลับ DB ได้เฉพาะ 5 ราคาเท่านั้น</div>
+    </div>
+    <div class="bd settab-pane" data-pane="backup" style="display:none;">
+      <div class="dbf-intro">สำรอง/กู้คืน <b>การตั้งค่าทั้งหมด</b> (ฟิลด์ · ไอคอน · กฎราคา · สิทธิ์ · ลิงก์สี ฯลฯ) — แนะนำให้สำรองก่อนต่อ API จริงหรือทดลองแก้ค่าสำคัญ</div>
+      <div class="bk-card">
+        <div class="bk-card-h">⬇️ สำรองข้อมูล</div>
+        <div class="bk-card-b">ดาวน์โหลดการตั้งค่าทั้งหมดเป็นไฟล์ <code>.json</code> เก็บไว้กู้คืนภายหลัง</div>
+        <button class="btn primary" id="bkExport">⬇️ ดาวน์โหลดไฟล์สำรอง</button>
+        <span class="bk-info" id="bkInfo"></span>
+      </div>
+      <div class="bk-card">
+        <div class="bk-card-h">⬆️ กู้คืนข้อมูล</div>
+        <div class="bk-card-b">เลือกไฟล์สำรองที่เคยดาวน์โหลด — <b>รวม</b> = เขียนทับเฉพาะค่าที่มีในไฟล์ · <b>แทนที่</b> = ลบค่าเดิมทั้งหมดก่อน</div>
+        <div class="bk-restore-row">
+          <input type="file" id="bkFile" accept="application/json,.json">
+          <select id="bkMode"><option value="merge">รวม (merge)</option><option value="replace">แทนที่ทั้งหมด</option></select>
+          <button class="btn" id="bkImport">⬆️ กู้คืน</button>
+        </div>
+        <span class="bk-info" id="bkRestoreInfo"></span>
+      </div>
+      <div class="conn-note">⚠️ กู้คืนแล้วระบบจะรีโหลดเพื่อใช้ค่าใหม่ทั้งหมด</div>
+    </div>
+    <div class="bd settab-pane" data-pane="dblink" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:8px;">สีแสดงสถานะการลิงก์แถวกับสินค้าในฐานข้อมูล (แถบสีด้านซ้ายของเลขแถว)</div>
+      <div class="marklbl">🔗 เชื่อมต่อปกติ (พบสินค้าใน DB):</div>
+      <div class="cf" id="dblinkOkGrid"></div>
+      <div class="marklbl" style="margin-top:8px;">⚠️ ลิงก์ค้าง (ไม่พบ / ถูกลบ / ปิดใช้งานใน DB):</div>
+      <div class="cf" id="dblinkBadGrid"></div>
+      <div class="dblink-prev">
+        <span class="dblink-prev-row" id="dblinkPrevOk"><span class="dblink-prev-num">10</span> เชื่อมต่อปกติ</span>
+        <span class="dblink-prev-row" id="dblinkPrevBad"><span class="dblink-prev-num">11</span> ลิงก์ค้าง</span>
+      </div>
+      <div style="border-top:1px dashed #e0d5c5;margin:14px 0 8px;"></div>
+      <div style="font-size:13px;color:#555;margin-bottom:8px;">ป๊อปอัปทั้งหมด (ชื่อสินค้าเมื่อชี้เลขแถว · คำอธิบายไอคอนเมื่อชี้หัวคอลัมน์) — ปรับขนาด/สี/พื้นหลัง</div>
+      <div class="marklbl" style="display:flex;align-items:center;gap:10px;">ขนาดตัวอักษร:
+        <input type="range" id="dblinkTipFs" min="5" max="29" step="1" style="flex:1;">
+        <b id="dblinkTipFsVal" style="width:34px;text-align:right;color:#C75B00;">12px</b>
+      </div>
+      <div class="marklbl" style="margin-top:6px;">สีตัวอักษร:</div>
+      <div class="cf" id="dblinkTipFgGrid"></div>
+      <div class="marklbl" style="margin-top:8px;">สีพื้นหลัง:</div>
+      <div class="cf" id="dblinkTipBgGrid"></div>
+      <div style="margin-top:12px;"><span class="sg-tip linktip" id="dblinkTipPrev" style="position:static;display:inline-block;">🔗 TKC-1001 · 185R14C OTANI MK1000</span></div>
+      <div style="border-top:1px dashed #e0d5c5;margin:14px 0 8px;"></div>
+      <div style="font-size:13px;color:#555;margin-bottom:8px;">ไอคอนแม่กุญแจ (แสดงเมื่อซ่อนแถว/คอลัมน์จากผู้ใช้)</div>
+      <div class="marklbl" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;">ไอคอน: <input id="lockGlyphInp" maxlength="3" style="width:48px;text-align:center;font-size:16px;height:32px;border:1px solid #cfcfcf;border-radius:6px;"></label>
+        <label style="display:flex;align-items:center;gap:6px;flex:1;">คำอธิบาย: <input id="lockDescInp" style="flex:1;min-width:120px;height:32px;border:1px solid #cfcfcf;border-radius:6px;padding:0 8px;font-family:inherit;"></label>
+      </div>
+    </div>
+    <div class="bd settab-pane" data-pane="dotcolor" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">สีปียาง (DOT) ตามอายุ — ใช้กับคอลัมน์ที่ผูกฟิลด์ <b>ปียาง DOT (ช่วงปี)</b></div>
+      <div style="font-size:12px;color:#888;margin-bottom:12px;">อ้างอิงปีปัจจุบัน: <b id="dotCurYY">—</b> · แสดงช่วงปีน้อย–มาก เช่น 22-26 · ลงสีแต่ละตัวตามอายุของมันเอง</div>
+      <div class="marklbl">ปีล่าสุด / ปีปัจจุบัน (อายุ 0 ปี):</div>
+      <div class="swgrid dotpal" id="dotPalNew" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="margin-top:10px;">เก่ากว่า 1 ปี:</div>
+      <div class="swgrid dotpal" id="dotPal1y" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="margin-top:10px;">เก่ากว่า 2 ปีขึ้นไป:</div>
+      <div class="swgrid dotpal" id="dotPal2y" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="margin-top:10px;">อักษรนำหน้า เช่น DF (ยางเกิด deflect) · ≤2 ตัวพิมพ์ใหญ่:</div>
+      <div class="swgrid dotpal" id="dotPalFlag" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="margin-top:10px;">ขีดคั่น ( - ):</div>
+      <div class="swgrid dotpal" id="dotPalSep" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div style="border-top:1px dashed #e0d5c5;margin:14px 0 6px;"></div>
+      <div class="marklbl">สีตัวเลข/โค้ดราคาแต่ละช่อง (ในตาราง popup):</div>
+      <div class="marklbl" style="font-weight:400;color:#888;margin-top:6px;">ขาย:</div>
+      <div class="swgrid dotpal" id="dotPalPRetail" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="font-weight:400;color:#888;margin-top:6px;">B:</div>
+      <div class="swgrid dotpal" id="dotPalPB" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="font-weight:400;color:#888;margin-top:6px;">A:</div>
+      <div class="swgrid dotpal" id="dotPalPA" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div class="marklbl" style="font-weight:400;color:#888;margin-top:6px;">S:</div>
+      <div class="swgrid dotpal" id="dotPalPS" style="grid-template-columns:repeat(10,1fr);"></div>
+      <div style="border-top:1px dashed #e0d5c5;margin:14px 0 6px;"></div>
+      <div class="marklbl" style="margin-top:10px;">ขนาดตัวเลข DOT (px) · เว้นว่าง = ขนาดปกติ:</div>
+      <div style="display:flex;align-items:center;gap:8px;"><input id="dotFontSize" type="number" min="6" max="72" placeholder="ปกติ" style="width:84px;height:32px;border:1px solid #cfcfcf;border-radius:6px;padding:0 8px;font-family:inherit;font-size:13px;"><span style="font-size:12px;color:#888;">px</span></div>
+      <div class="marklbl" style="margin-top:10px;">ความหนาตัวเลข DOT:</div>
+      <select id="dotFontWeight" style="height:32px;border:1px solid #cfcfcf;border-radius:6px;padding:0 8px;font-family:inherit;font-size:13px;"><option value="">ปกติ (ค่าเริ่มต้น)</option><option value="400">บาง (400)</option><option value="500">ปานกลาง (500)</option><option value="600">กึ่งหนา (600)</option><option value="700">หนา (700)</option><option value="800">หนามาก (800)</option><option value="900">หนาที่สุด (900)</option></select>
+      <div class="marklbl" style="margin-top:10px;">ความหนาตัวเลขราคา (ใน popup):</div>
+      <select id="dotPriceWeight" style="height:32px;border:1px solid #cfcfcf;border-radius:6px;padding:0 8px;font-family:inherit;font-size:13px;"><option value="">ปกติ (ค่าเริ่มต้น)</option><option value="400">บาง (400)</option><option value="500">ปานกลาง (500)</option><option value="600">กึ่งหนา (600)</option><option value="700">หนา (700)</option><option value="800">หนามาก (800)</option><option value="900">หนาที่สุด (900)</option></select>
+      <div style="border-top:1px dashed #e0d5c5;margin:14px 0 6px;"></div>
+      <div class="marklbl">สี popup ทุกหน้าต่าง (พื้นหลัง/ตัวอักษร) · ✕ = ปกติ:</div>
+      <div class="marklbl" style="font-weight:400;color:#888;margin-top:6px;">พื้นหลัง:</div>
+      <div class="swgrid dotpal" id="dotPalPopBg" style="grid-template-columns:repeat(11,1fr);"></div>
+      <div class="marklbl" style="font-weight:400;color:#888;margin-top:6px;">ตัวอักษร:</div>
+      <div class="swgrid dotpal" id="dotPalPopFg" style="grid-template-columns:repeat(11,1fr);"></div>
+      <div class="markprev" style="margin-top:16px;font-size:13px;">ตัวอย่าง: <span id="dotPrev" style="font-weight:800;font-size:16px;letter-spacing:.5px;">—</span></div>
+    </div>
+    <div class="bd settab-pane" data-pane="dbfields" style="display:none;">
+      <div class="dbf-intro">เพิ่ม/ลบ <b>ฟิลด์</b> และ <b>หมวดหมู่</b> สำหรับผูกคอลัมน์/ช่องกับ DB · ฟิลด์ที่เพิ่มเอง = อ่านอย่างเดียว (เขียนกลับได้เฉพาะ 5 ราคา)</div>
+      <div class="dbf-addbar">
+        <input id="dbfNewCat" placeholder="ชื่อหมวดใหม่" />
+        <button class="btn" id="dbfAddCat">＋ หมวด</button>
+      </div>
+      <div class="dbf-addbar">
+        <select id="dbfNewGroup"></select>
+        <input id="dbfNewKey" placeholder="field key ใน DB" />
+        <input id="dbfNewLabel" placeholder="ชื่อแสดง" />
+        <button class="btn primary" id="dbfAddField">＋ ฟิลด์</button>
+      </div>
+      <div id="dbfList" class="dbf-list"></div>
+      <div class="dbf-foot">💡 ฟิลด์ระบบลบไม่ได้ (🔧) · ติ๊กถูก = แสดงในเมนูผูกคอลัมน์ · ฟิลด์/หมวดที่เพิ่มเองลบได้ด้วย ✕</div>
+    </div>
+    <div class="bd settab-pane" data-pane="staticon" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:8px;">นิยามไอคอนสถานะสินค้า — ลากเรียงลำดับความสำคัญ (priority) · ปิด/เปิดได้ · คลิกขวาที่ช่องสถานะในตารางเพื่อตั้ง auto/manual/mixed</div>
+      <div id="statIconList" class="stdef-list"></div>
+      <div style="display:flex;gap:7px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn" id="statIconAdd">＋ เพิ่มสถานะใหม่</button>
+        <button class="btn" id="statIconReset">↺ คืนค่าเริ่มต้น</button>
+        <button class="btn primary" id="statIconSave" style="margin-left:auto;">💾 บันทึกและใช้งาน</button>
+      </div>
+    </div>
+    <div class="bd settab-pane" data-pane="pricing" style="display:none;">
+      <div style="font-size:13px;color:#555;margin-bottom:10px;">กฎคำนวณราคาเครดิต + VAT (ใช้ตอนคลิกดูราคา) — เก็บฝั่งเรา</div>
+      <div class="pr-grid">
+        <label class="pr-field">VAT (%)<input type="number" id="prVat" min="0" max="30" step="0.01"></label>
+        <label class="pr-field">ปัดเศษขึ้นทีละ<input type="number" id="prStep" min="0" max="100" step="0.01"></label>
+      </div>
+      <input type="hidden" id="prMarkup" value="0">
+      <div class="pr-bkthead">
+        <div style="font-weight:700;font-size:12.5px;color:#444;">บวกเครดิตตามมูลค่าสินค้า/ชิ้น</div>
+        <button class="btn" id="prBktReset" title="คืนค่าเริ่มต้น">↺ ค่าเริ่มต้น</button>
+      </div>
+      <div style="font-size:11px;color:#999;margin:2px 0 6px;">ขอบล่างต่อจากแถวบนอัตโนมัติ (ไม่มีช่องว่าง) · แก้ได้แค่ขอบบน + ส่วนเพิ่ม</div>
+      <div id="prBkts" class="pr-bkts"></div>
+      <button class="btn" id="prBktAdd" style="margin-top:7px;">＋ เพิ่มช่วง</button>
+      <div class="pr-preview" id="prPreview"></div>
+    </div>
+    <div class="ft"><button class="btn" data-close>ยกเลิก</button><button class="btn primary" id="condOk">บันทึก</button></div>
+  </div>
+</div>
+
+<div class="modal" id="mDelSheet">
+  <div class="dlg">
+    <h3 style="background:#c0392b;">🗑️ ลบหมวด</h3>
+    <div class="bd" id="delSheetBody"></div>
+    <div class="ft">
+      <button class="btn" data-close>ยกเลิก</button>
+      <button class="btn" id="delSheetBtn" style="border-color:#c0392b;color:#c0392b;"></button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mUpdate">
+  <div class="dlg">
+    <h3>📤 อัพเดทราคา</h3>
+    <div class="bd" id="updStep1">
+      <div style="font-weight:800;margin-bottom:11px;font-size:14px;">1️⃣ เลือกเวลาที่ราคามีผล</div>
+      <div class="upd-head" id="updHead"></div>
+      <label class="updopt" id="updOptNow">
+        <div class="updopt-top">
+          <span class="updopt-radio"></span>
+          <input type="radio" name="updWhen" value="now" checked style="display:none;" />
+          <span class="updopt-title">⚡ มีผลทันที</span>
+        </div>
+        <div class="updopt-desc">ราคาใหม่จะใช้กับลูกค้าทันทีที่กดยืนยัน</div>
+      </label>
+      <label class="updopt" id="updOptSched">
+        <div class="updopt-top">
+          <span class="updopt-radio"></span>
+          <input type="radio" name="updWhen" value="sched" style="display:none;" />
+          <span class="updopt-title">🗓️ ตั้งวัน–เวลา</span>
+        </div>
+        <div class="updopt-desc">ซ่อนราคาใหม่จากลูกค้าไว้ก่อน แล้วเปลี่ยนให้อัตโนมัติเมื่อถึงเวลาที่กำหนด</div>
+        <div class="updopt-body">
+          <input type="datetime-local" id="updTime" class="upd-dt" />
+          <div class="upd-chips" id="updChips">
+            <button type="button" class="upd-chip" data-preset="t17">วันนี้ 17:00</button>
+            <button type="button" class="upd-chip" data-preset="tm8">พรุ่งนี้ 08:00</button>
+            <button type="button" class="upd-chip" data-preset="d2">มะรืนนี้ 08:00</button>
+            <button type="button" class="upd-chip" data-preset="mon">จันทร์หน้า 08:00</button>
+            <button type="button" class="upd-chip" data-preset="m1">ต้นเดือนหน้า</button>
+          </div>
+          <div class="upd-echo" id="updEcho" style="display:none;"></div>
+        </div>
+      </label>
+    </div>
+    <div class="bd" id="updStep2" style="display:none;">
+      <div style="font-weight:700;margin-bottom:8px;">2️⃣ สรุปก่อนยืนยัน</div>
+      <div id="updSummary"></div>
+    </div>
+    <div class="ft">
+      <button class="btn" data-close>ยกเลิก</button>
+      <button class="btn" id="updBack" style="display:none;">← ย้อนกลับ</button>
+      <button class="btn primary" id="updNext">ถัดไป →</button>
+      <button class="btn primary" id="updConfirm" style="display:none;">✅ ยืนยันอัพเดท</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mKeys">
+  <div class="dlg" style="width:560px;">
+    <h3>⌨️ คีย์ลัดทั้งหมด (แบบ Windows / Excel)</h3>
+    <div class="bd" style="max-height:60vh;overflow:auto;">
+      <table class="keys-tb">
+        <tr><th colspan="2">แก้ไข</th></tr>
+        <tr><td>Ctrl+C / Ctrl+X / Ctrl+V</td><td>คัดลอก / ตัด / วาง (Esc = ยกเลิกที่คัดลอกไว้)</td></tr>
+        <tr><td>Ctrl+Z / Ctrl+Y</td><td>ย้อนกลับ / ทำซ้ำ</td></tr>
+        <tr><td>Ctrl+D / Ctrl+R</td><td>เติมลงจากแถวบน / เติมขวาจากคอลัมน์ซ้าย</td></tr>
+        <tr><td>F2 / Enter</td><td>แก้ไขเซลล์ · พิมพ์ทับได้ทันที · Delete = ล้างค่า</td></tr>
+        <tr><td>Ctrl+B / I / U</td><td>ตัวหนา / เอียง / ขีดเส้นใต้</td></tr>
+        <tr><th colspan="2">แถว/คอลัมน์</th></tr>
+        <tr><td>Shift+Space / Ctrl+Space</td><td>เลือกทั้งแถว / ทั้งคอลัมน์</td></tr>
+        <tr><td>Ctrl + (+) / Ctrl + (−)</td><td>แทรกแถว-คอลัมน์ (หรือแทรกที่คัดลอก) / ลบ</td></tr>
+        <tr><th colspan="2">เลื่อน/เลือก</th></tr>
+        <tr><td>ลูกศร · Shift+ลูกศร · Tab</td><td>เลื่อนช่อง · ขยายการเลือก · ไปขวา</td></tr>
+        <tr><td>Ctrl+ลูกศร / Ctrl+Home / Ctrl+End</td><td>ไปสุดขอบ / ไป A1 / ไปท้ายชีต</td></tr>
+        <tr><td>PageUp / PageDown</td><td>เลื่อนทีละ 20 แถว</td></tr>
+        <tr><td>Ctrl+A</td><td>เลือกทั้งหมด</td></tr>
+        <tr><th colspan="2">ไฟล์</th></tr>
+        <tr><td>Ctrl+S / Ctrl+P / Ctrl+K</td><td>บันทึก / พิมพ์ / ค้นหาสินค้า (Ctrl+F ก็ได้)</td></tr>
+        <tr><th colspan="2">🎮 Logitech คีย์บอร์ด (ทุกรุ่นที่มีปุ่ม G / ปุ่มมาโคร)</th></tr>
+        <tr><td colspan="2" style="color:#555;">เปิด <b>Logitech G HUB</b> → โปรไฟล์ของเบราว์เซอร์ → ผูกปุ่ม G แต่ละปุ่มเป็นปุ่ม F13–F24 แล้วโปรแกรมจะรับคำสั่งอัตโนมัติ:</td></tr>
+        <tr><td>F13 / F14 / F15</td><td>คัดลอก / ตัด / วาง</td></tr>
+        <tr><td>F16 / F17 / F18</td><td>ย้อนกลับ / ทำซ้ำ / บันทึก</td></tr>
+        <tr><td>F19 / F20 / F21</td><td>เพิ่มรุ่น / เพิ่มขนาด / ผสานเซลล์</td></tr>
+        <tr><td>F22 / F23 / F24</td><td>พิมพ์ / อัพเดทราคา / เปิดหน้าต่างนี้</td></tr>
+        <tr><th colspan="2">🖱️ Logitech เม้าส์ (MX / G / M-series ทุกรุ่น)</th></tr>
+        <tr><td>ปุ่มโป้งหลัง (Back)</td><td>ย้อนกลับ (Undo) — ใช้ได้ทันที ไม่ต้องตั้งค่า</td></tr>
+        <tr><td>ปุ่มโป้งหน้า (Forward)</td><td>ทำซ้ำ (Redo)</td></tr>
+        <tr><td>Ctrl + ล้อเลื่อน</td><td>ซูมเข้า-ออกตาราง (50–200%)</td></tr>
+        <tr><td>ล้อเอียงซ้าย-ขวา (tilt)</td><td>เลื่อนตารางแนวนอน</td></tr>
+        <tr><td>คลิกล้อ (ปุ่มกลาง) บนตาราง</td><td>ซ่อน/แสดงเลขลับ 🙈</td></tr>
+        <tr><td colspan="2" style="color:#555;">ปุ่มพิเศษอื่นๆ (ปุ่มข้าง G502, MX thumb, gesture): เปิด <b>G HUB / Options+</b> → ผูกปุ่มเป็น Keystroke ใดก็ได้ของโปรแกรม (เช่น Ctrl+C, Ctrl+S, F13–F24) ระบบรับทันทีทุกรุ่น</td></tr>
+      </table>
+    </div>
+    <div class="ft"><button class="btn primary" data-close>ปิด</button></div>
+  </div>
+</div>
+
+<div class="modal" id="mApi">
+  <div class="dlg" style="width:560px;">
+    <h3>🔌 ปลั๊กอินบอท Telegram / AI LOCAL <span class="api-dot off" id="apiDot"></span></h3>
+    <div class="bd" style="max-height:62vh;overflow:auto;">
+      <label class="cb-cfg-row" style="font-size:13px;"><input type="checkbox" id="apiEnabled" /> เปิดใช้สะพาน API</label>
+      <input id="apiUrl" placeholder="ws://localhost:8765" style="width:100%;height:32px;border:1px solid #c4c4c4;border-radius:6px;padding:0 9px;font-family:Consolas,monospace;margin-top:8px;" />
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <div style="flex:1;"><div class="api-lab">🔑 READ token (เช็คราคา)</div><input id="apiReadTok" style="width:100%;height:30px;border:1px solid #c4c4c4;border-radius:6px;padding:0 8px;font-family:Consolas,monospace;font-size:11.5px;" /></div>
+        <div style="flex:1;"><div class="api-lab">🔐 ADMIN token (แก้ไข/สั่งงาน)</div><input id="apiAdminTok" style="width:100%;height:30px;border:1px solid #c4c4c4;border-radius:6px;padding:0 8px;font-family:Consolas,monospace;font-size:11.5px;" /></div>
+      </div>
+      <div class="cb-cfg-note" style="margin-top:8px;">แยกโทเคน 2 ชุด: READ เห็นเฉพาะราคาที่มีผลแล้ว (ไม่เห็นทุน/รหัสลับ) · ADMIN แก้ราคา-เผยแพร่ได้เหมือนนั่งหน้าจอ · ไฟล์เซิร์ฟเวอร์ตัวอย่าง: <b>telegram-bridge-server.example.js</b> (รันด้วย Node.js บนเครื่องคุณ)</div>
+      <table class="keys-tb" style="margin-top:8px;">
+        <tr><th colspan="2">คำสั่ง API (JSON ผ่าน WebSocket)</th></tr>
+        <tr><td>price.check {q}</td><td>🔑 เช็คราคา (สูงสุด 10 รายการ)</td></tr>
+        <tr><td>price.list {q}</td><td>🔑 รายการราคา (สูงสุด 60)</td></tr>
+        <tr><td>admin.price.check {q}</td><td>🔐 เช็คราคา + ทุน/Margin/ร่างล่าสุด</td></tr>
+        <tr><td>admin.price.set {q, field, value}</td><td>🔐 แก้ราคา (field: retail/B/A/S/cost)</td></tr>
+        <tr><td>admin.cell.set {ref, value}</td><td>🔐 แก้ช่องใดก็ได้ เช่น H9 = 1850 หรือสูตร</td></tr>
+        <tr><td>admin.update.publish {effectiveAt?}</td><td>🔐 เผยแพร่ราคาเข้า DB (ตั้งเวลาได้)</td></tr>
+        <tr><td>admin.changes</td><td>🔐 แถวที่มีการปรับรอบนี้</td></tr>
+      </table>
+      <div class="api-lab" style="margin-top:8px;">บันทึกการทำงาน</div>
+      <pre id="apiLog" style="background:#1f1f1f;color:#9fdfb5;border-radius:6px;padding:8px;font-size:10.5px;max-height:110px;overflow:auto;margin:4px 0 0;">—</pre>
+    </div>
+    <div class="ft">
+      <button class="btn" data-close>ปิด</button>
+      <button class="btn primary" id="apiSave">💾 บันทึก + เชื่อมต่อ</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ════════ JS ของโปรแกรม (แยกเป็นไฟล์ย่อย · ดู app-xls2/README-โครงสร้าง.md) ════════ -->
+
+<!-- กลุ่ม A · เครื่องยนต์+ไลบรารีหลัก (ข้อมูล/DB/ตาราง/รูปภาพ/ซิงค์) -->
+<script src="app-xls2/icon-kit.js"></script>
+<script src="app-xls/data-pickup01.js"></script>
+<script src="app-xls2/engine2.js"></script>
+<script src="app-xls2/idb-store.js"></script>
+<script src="app-xls2/db-staging.js"></script>
+<script src="app-xls2/dbx-connect.js"></script>
+<script src="app-xls2/staging-mgr.js"></script>
+<script src="app-xls2/audit-win.js"></script>
+<script src="app-xls2/users-win.js"></script>
+<script src="app-xls2/sheet-build.js"></script>
+<script src="app-xls2/sheet-grid.js"></script>
+<script src="app-xls2/border-overlay.js"></script>
+<script src="app-xls2/image-slot.js"></script>
+<script src="app-xls2/chatbot2.js"></script>
+<script src="app-xls2/api-bridge.js"></script>
+<script src="app-xls2/img-layer.js"></script>
+<script src="app-xls2/ai-image.js"></script>
+<script src="app-xls2/photopea-edit.js"></script>
+<script src="app-xls2/gdrive-sync.js?v=2"></script>
+<!-- กลุ่ม B · โหลดก่อนแกนหลัก (แกนเรียกใช้ตอน init) -->
+<script src="app-xls2/dialogs.js"></script>
+<script src="app-xls2/filter-bar.js"></script>
+<script src="app-xls2/dot-year.js"></script>
+<script src="app-xls2/product-info.js"></script>
+<script src="app-xls2/auth.js"></script>
+
+<!-- กลุ่ม C · แกนหลัก แตกจาก app-main เดิม (de-IIFE, global scope) · ⚠️ ต้องเรียงลำดับ 1→7 -->
+<script src="app-xls2/main-1-boot.js"></script>
+<script src="app-xls2/main-2-more-menu.js"></script>
+<script src="app-xls2/main-3-view-mode.js"></script>
+<script src="app-xls2/main-4a-color-core.js"></script>
+<script src="app-xls2/main-4b-color-toolbar.js"></script>
+<script src="app-xls2/main-5-file-menu.js"></script>
+<script src="app-xls2/main-6a-settings.js"></script>
+<script src="app-xls2/main-6b-settings-tabs.js"></script>
+<script src="app-xls2/main-7a-sheet-file.js"></script>
+<script src="app-xls2/main-7b-init.js"></script>
+<!-- กลุ่ม D · ฟีเจอร์เสริม โหลดหลังแกนหลัก (เรียกผ่าน global ตอนผู้ใช้คลิก) -->
+<script src="app-xls2/price-update.js"></script>
+<script src="app-xls2/emoji-picker.js"></script>
+<script src="app-xls2/backup-restore.js"></script>
+<script src="app-xls2/theme.js"></script>
+<script src="app-xls2/input-zoom.js"></script>
+
+<!-- กลุ่ม E · ลงทะเบียน Service Worker (โหลดเวอร์ชันล่าสุด + ออฟไลน์) -->
+<script src="app-xls2/sw-register.js"></script>
+<script src="app-xls2/device-id.js"></script>
+<script src="app-xls2/device-registry-client.js"></script>
+<script src="app-xls2/admin-central.js"></script>
+<script src="app-xls2/perm-enforce.js"></script>
+<script src="app-xls2/auto-logout.js"></script>
+<script src="app-xls2/pwa-install.js"></script>
+</body>
+</html>

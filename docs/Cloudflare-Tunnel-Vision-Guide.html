@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>คู่มือ Cloudflare Tunnel — เปิด vision ให้ชิบะคุงอ่านรูปจากนอกวง LAN</title>
+<style>
+  :root {
+    --orange: #F47C20;
+    --orange-d: #C75B00;
+    --orange-l: #FFF3E6;
+    --ink: #2a2320;
+    --muted: #7a6f68;
+    --line: #ece2d8;
+    --green: #1d8a4f;
+    --red: #c0392b;
+    --code-bg: #2b2622;
+    --code-ink: #f3 e8 dd;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Sarabun", "Noto Sans Thai", system-ui, sans-serif;
+    color: var(--ink);
+    background: #f6f1ea;
+    line-height: 1.7;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 0 22px 80px; }
+  header.hero {
+    background: linear-gradient(135deg, #F47C20, #FF9A3D);
+    color: #fff; padding: 38px 22px 30px; text-align: center;
+  }
+  .hero-in { max-width: 820px; margin: 0 auto; }
+  .hero .dog { font-size: 40px; line-height: 1; }
+  .hero h1 { font-size: 25px; margin: 12px 0 6px; font-weight: 800; letter-spacing: -.01em; }
+  .hero p { margin: 0; opacity: .95; font-size: 14.5px; }
+  .pill { display: inline-block; background: rgba(255,255,255,.22); border: 1px solid rgba(255,255,255,.4);
+    border-radius: 999px; padding: 4px 13px; font-size: 12.5px; margin-top: 14px; }
+
+  .lead {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 20px; margin-top: 26px; font-size: 14.5px;
+  }
+  .lead b { color: var(--orange-d); }
+
+  h2 { font-size: 19px; margin: 38px 0 4px; display: flex; align-items: center; gap: 11px; }
+  h2 .n { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--orange);
+    color: #fff; font-size: 15px; display: grid; place-items: center; font-weight: 800; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 2px 0 14px 41px; }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 4px 20px 8px; margin-left: 41px; }
+  p { margin: 12px 0; font-size: 14.5px; }
+
+  pre { background: var(--code-bg); color: #f4e9de; border-radius: 10px; padding: 14px 16px;
+    overflow-x: auto; font-size: 13px; line-height: 1.6; margin: 14px 0;
+    font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; position: relative; }
+  pre .cmt { color: #b59c84; }
+  pre b { color: #ffcf9e; font-weight: 700; }
+  code.inl { background: var(--orange-l); color: var(--orange-d); border: 1px solid #f3d9bd;
+    border-radius: 5px; padding: 1px 6px; font-size: 12.5px; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+
+  .note { border-left: 4px solid; border-radius: 0 10px 10px 0; padding: 11px 16px; margin: 16px 0; font-size: 13.8px; }
+  .note.warn { border-color: #e8a13a; background: #fff7ea; }
+  .note.tip { border-color: var(--green); background: #eefaf2; }
+  .note.danger { border-color: var(--red); background: #fcefee; }
+  .note b { font-weight: 800; }
+
+  ul.checks { list-style: none; padding: 0; margin: 12px 0; }
+  ul.checks li { padding: 5px 0 5px 28px; position: relative; font-size: 14px; }
+  ul.checks li::before { content: '✓'; position: absolute; left: 0; top: 5px; color: var(--green); font-weight: 800; }
+
+  .kbd { display: inline-block; background: #fff; border: 1px solid #ccc; border-bottom-width: 2px;
+    border-radius: 5px; padding: 0 6px; font-size: 12px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+  th { background: var(--orange-l); color: var(--orange-d); font-weight: 700; }
+
+  footer { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 40px; }
+
+  @media print {
+    body { background: #fff; }
+    header.hero { background: var(--orange) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    pre { background: #2b2622 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .card, .lead, .note { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-in">
+    <div class="dog">🐕🔒</div>
+    <h1>เปิดให้ชิบะคุงอ่านรูปจากนอกวง LAN</h1>
+    <p>ตั้ง Cloudflare Tunnel ให้ AI vision (qwen3.6) ออกเน็ตเป็น https — ปลอดภัย ฟรี ไม่ต้องเปิดพอร์ตเราเตอร์</p>
+    <span class="pill">สำหรับ Mac mini · ทำครั้งเดียว ใช้ได้ตลอด</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="lead">
+    <p style="margin-top:14px"><b>ปัญหาที่แก้:</b> ตอนนี้ vision อยู่ที่ <code class="inl">192.168.10.38:8080</code> ซึ่งเป็น IP วงในบ้าน/ร้าน — ออกนอกวง LAN เครื่องอื่นเรียกไม่ได้ และเป็น http จึงโดน mixed-content เวลาเปิดแอปผ่าน https</p>
+    <p style="margin-bottom:14px"><b>หลังทำคู่มือนี้:</b> vision จะมี URL แบบ <code class="inl">https://vision.โดเมนคุณ</code> เรียกได้จากทุกที่ในโลก และเป็น https → เปิดแอปจากที่ไหนก็อ่านรูปได้ ไม่ติด mixed-content อีก</p>
+  </div>
+
+  <h2><span class="n">A</span> ลองแบบเร็ว (ไม่ต้องมีโดเมน)</h2>
+  <div class="sub">อยากเทสต์ก่อนว่าใช้ได้ไหม — ได้ URL ชั่วคราวใน 1 นาที</div>
+  <div class="card">
+    <p>ติดตั้ง <code class="inl">cloudflared</code> บน Mac mini (ใช้ Homebrew):</p>
+    <pre><span class="cmt"># ถ้ายังไม่มี Homebrew ข้ามได้ ติดตั้งจาก brew.sh ก่อน</span>
+brew install cloudflared</pre>
+    <p>เปิด tunnel ชั่วคราวชี้ไปที่ vision (รันบนเครื่องเดียวกับ vision):</p>
+    <pre>cloudflared tunnel --url <b>http://localhost:8080</b></pre>
+    <div class="note warn">
+      <b>ถ้า vision อยู่คนละเครื่อง</b> กับที่รัน cloudflared ให้เปลี่ยน <code class="inl">localhost</code> เป็น IP วงในของเครื่อง vision เช่น <code class="inl">http://192.168.10.38:8080</code>
+    </div>
+    <p>จะได้ URL หน้าตาแบบนี้โผล่มาในเทอร์มินัล:</p>
+    <pre>https://<b>random-words-1234</b>.trycloudflare.com</pre>
+    <p>เอา URL นั้น + ต่อท้ายด้วย <code class="inl">/v1/chat/completions</code> ไปใส่ในชิบะคุง (ดูขั้น <b>C</b>) แล้วลองอ่านรูปได้เลย</p>
+    <div class="note warn"><b>ข้อจำกัด:</b> URL ชั่วคราวนี้เปลี่ยนทุกครั้งที่ปิด/เปิดใหม่ และไม่มีรหัสป้องกัน — เหมาะแค่ทดสอบ ใช้งานจริงให้ทำขั้น <b>B</b></div>
+  </div>
+
+  <h2><span class="n">B</span> แบบถาวร (มีโดเมนของตัวเอง)</h2>
+  <div class="sub">URL คงที่ ไม่เปลี่ยน + รันเป็นบริการอัตโนมัติ — ต้องมีโดเมนผูกกับ Cloudflare (ฟรี)</div>
+  <div class="card">
+    <p><b>ขั้น 1 — ล็อกอิน Cloudflare</b> (เปิดเบราว์เซอร์ให้กดอนุญาต เลือกโดเมนที่จะใช้):</p>
+    <pre>cloudflared tunnel login</pre>
+
+    <p><b>ขั้น 2 — สร้าง tunnel</b> ตั้งชื่อว่า vision:</p>
+    <pre>cloudflared tunnel create <b>vision</b>
+<span class="cmt"># จะได้ไฟล์ credential .json + Tunnel ID เก็บไว้</span></pre>
+
+    <p><b>ขั้น 3 — ผูกชื่อโดเมนย่อย</b> (เช่น vision.yourdomain.com):</p>
+    <pre>cloudflared tunnel route dns vision <b>vision.yourdomain.com</b></pre>
+
+    <p><b>ขั้น 4 — สร้างไฟล์ตั้งค่า</b> ที่ <code class="inl">~/.cloudflared/config.yml</code>:</p>
+    <pre>tunnel: <b>vision</b>
+credentials-file: /Users/<span class="cmt">ชื่อผู้ใช้</span>/.cloudflared/<span class="cmt">TUNNEL-ID</span>.json
+
+ingress:
+  - hostname: <b>vision.yourdomain.com</b>
+    service: <b>http://localhost:8080</b>   <span class="cmt"># หรือ IP วงในของเครื่อง vision</span>
+  - service: http_status:404</pre>
+
+    <p><b>ขั้น 5 — รัน + ติดตั้งเป็นบริการ</b> (เปิดเองทุกครั้งที่บูต Mac):</p>
+    <pre><span class="cmt"># ทดสอบรันก่อน</span>
+cloudflared tunnel run vision
+
+<span class="cmt"># ถ้าโอเค ติดตั้งให้รันอัตโนมัติตลอด</span>
+sudo cloudflared service install</pre>
+
+    <div class="note tip"><b>เสร็จแล้ว!</b> ตอนนี้ <code class="inl">https://vision.yourdomain.com/v1/chat/completions</code> เรียกได้จากทุกที่ และเป็น https พร้อมใช้</div>
+  </div>
+
+  <h2><span class="n">C</span> ตั้งค่าในชิบะคุง</h2>
+  <div class="sub">บอก endpoint ใหม่ให้แชทบอท</div>
+  <div class="card">
+    <ul class="checks">
+      <li>เปิดแชทชิบะคุง → กดรูปเฟือง <span class="kbd">⚙️</span></li>
+      <li>ช่อง <b>Endpoint</b> ใส่ URL ใหม่ + ต่อท้าย <code class="inl">/v1/chat/completions</code><br>
+        เช่น <code class="inl">https://vision.yourdomain.com/v1/chat/completions</code></li>
+      <li>ช่อง <b>โมเดล</b> คงเดิม: <code class="inl">Qwen3.6-35B-A3B-NVFP4.gguf</code></li>
+      <li>ติ๊ก <b>เปิด AI local</b> → กด <b>🔌 ทดสอบ</b> → ควรขึ้น "✅ เชื่อมต่อ vision สำเร็จ"</li>
+      <li>แนบรูป 📷 ได้เลย — คราวนี้ใช้ได้จากทุกที่ ไม่ต้องอยู่ในวง LAN</li>
+    </ul>
+    <div class="note tip"><b>โบนัส:</b> เพราะเป็น https แล้ว เปิดแอปจาก claude.ai หรือที่ไหนก็เรียกได้ — ไม่ต้องเปิดผ่าน file:// หรือ http LAN อีกต่อไป</div>
+  </div>
+
+  <h2><span class="n">D</span> ความปลอดภัย (สำคัญ)</h2>
+  <div class="sub">เพราะตอนนี้ vision ออกเน็ตแล้ว ควรกันคนอื่นแอบใช้</div>
+  <div class="card">
+    <p>มี 2 ชั้นที่แนะนำให้ทำ (อย่างน้อย 1):</p>
+    <table>
+      <tr><th>วิธี</th><th>ทำยังไง</th></tr>
+      <tr><td><b>API key</b> ที่ llama.cpp</td><td>รัน server ด้วย <code class="inl">--api-key รหัสลับ</code> แล้วใส่รหัสเดียวกันในช่อง <b>API key</b> ของชิบะคุง</td></tr>
+      <tr><td><b>Cloudflare Access</b></td><td>ตั้งใน Cloudflare Zero Trust ให้ต้องล็อกอินอีเมล/รหัสก่อนเข้าถึง URL</td></tr>
+    </table>
+    <div class="note danger"><b>อย่าเปิดทิ้งไว้แบบไม่มีรหัส</b> — ใครเดา URL เจอจะเรียกใช้โมเดลคุณได้ฟรี เปลือง GPU และเสี่ยงข้อมูล</div>
+  </div>
+
+  <h2><span class="n">E</span> แก้ปัญหาที่เจอบ่อย</h2>
+  <div class="card">
+    <table>
+      <tr><th>อาการ</th><th>สาเหตุ / แก้</th></tr>
+      <tr><td>ทดสอบขึ้น <b>Failed to fetch</b></td><td>CORS — รัน llama.cpp ให้เปิด CORS (มักเปิด default) · หรือ tunnel ยังไม่ขึ้น เช็ก <code class="inl">cloudflared</code> รันอยู่</td></tr>
+      <tr><td>ขึ้น <b>502 / 1033</b></td><td>cloudflared วิ่งอยู่แต่ต่อ vision ไม่ได้ — เช็กว่า service ใน config.yml ชี้ IP/พอร์ตถูก และ vision รันอยู่</td></tr>
+      <tr><td><b>อ่านรูปช้า/หมดเวลา</b></td><td>โมเดล 35B หนัก — ชิบะคุงย่อรูปให้แล้ว และรอได้ 3 นาที · ถ้ายังช้าให้วาดวงเฉพาะส่วน</td></tr>
+      <tr><td>URL เปลี่ยนทุกครั้ง</td><td>คุณใช้แบบ A (ชั่วคราว) อยู่ — ทำแบบ B เพื่อให้ URL คงที่</td></tr>
+    </table>
+  </div>
+
+  <footer>
+    คู่มือนี้สร้างสำหรับโปรเจกต์ DYNAMIC PRICE LIST · ชิบะคุง 🐕<br>
+    กด <span class="kbd">Ctrl/⌘ + P</span> เพื่อบันทึกเป็น PDF เก็บไว้
+  </footer>
+
+</div>
+</body>
+</html>
