@@ -1,0 +1,671 @@
+/* ───────────────────────────────────────────────
+   css-06-refinements.css  ·  [6/6]
+   แยกจาก xls2.css เดิม · โหลด <link> เรียง 01→06 (cascade เหมือนไฟล์เดียว ห้ามสลับลำดับ)
+─────────────────────────────────────────────── */
+/* ชื่อไฟล์บนหัว — ย่อกระชับ (คลิกขวาเพื่อขยาย/ย่อ) */
+#brandTtl { max-width: 132px; cursor: context-menu; }
+#brandTtl, #brandTtl small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+#brandTtl.full { max-width: none; }
+
+
+/* ---------- หน้าต่างค้นรูปในโปรแกรม ---------- */
+.imgsearch { position: fixed; z-index: 110; left: 50%; top: 7%; transform: translateX(-50%);
+  width: 620px; max-width: 94vw; height: min(660px, 86vh); max-height: 86vh; background: #fff; border-radius: 12px;
+  box-shadow: 0 22px 60px rgba(0,0,0,.4); display: none; flex-direction: column; overflow: hidden; }
+.is-head { background: linear-gradient(135deg, #F47C20, #FF9A3D); color: #fff; font-weight: 800;
+  padding: 11px 14px; display: flex; justify-content: space-between; }
+.is-x { cursor: pointer; opacity: .85; }
+.is-x:hover { opacity: 1; }
+.is-bar { display: flex; gap: 6px; padding: 10px; }
+.is-q { flex: 1; height: 33px; border: 1px solid #c4c4c4; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 13px; }
+.is-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 4px 12px 10px; min-height: 0; }
+.is-it { position: relative; border: 2px solid #eee; border-radius: 8px; overflow: hidden; cursor: pointer; min-width: 0; min-height: 0; height: 100%; background: #f7f7f7; }
+.is-it img { width: 100%; height: 100%; object-fit: contain; display: block; background: #fafafa; }
+/* แถบเลื่อนหน้า: นับจำนวน + ลูกศร ไป/กลับ */
+.is-pager { display: none; align-items: center; justify-content: center; gap: 14px; padding: 8px 12px; border-top: 1px solid #eee; }
+.is-pgcount { font-size: 12px; color: #555; }
+.is-pgcount b { color: #F47C20; font-size: 13px; }
+.is-pg { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #F5C89B; background: #FFF8F1;
+  color: #C75B00; font-size: 18px; font-weight: 800; cursor: pointer; display: grid; place-items: center; line-height: 1; }
+.is-pg:hover:not([disabled]) { background: #F47C20; color: #fff; border-color: #F47C20; }
+.is-pg[disabled] { opacity: .35; cursor: default; }
+body.dark .is-pager { border-color: #444; }
+body.dark .is-pgcount { color: #bbb; }
+body.dark .is-pg { background: #3a2c1d; border-color: #6b4a28; color: #FFB061; }
+.is-it:hover { border-color: #F5C89B; }
+.is-it.sel { border-color: #F47C20; box-shadow: 0 0 0 2px rgba(244,124,32,.3); }
+.is-chk { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%;
+  background: #F47C20; color: #fff; display: none; place-items: center; font-size: 12px; font-weight: 800; }
+.is-it.sel .is-chk { display: grid; }
+.is-msg { grid-column: 1 / -1; text-align: center; color: #888; padding: 28px 0; font-size: 13px; }
+.is-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border-top: 1px solid #eee; }
+.is-note { font-size: 10.5px; color: #999; }
+body.dark .imgsearch { background: #2d2d2d; color: #ddd; }
+body.dark .is-q { background: #333; border-color: #555; color: #ddd; }
+body.dark .is-it { border-color: #444; background: #222; }
+body.dark .is-foot { border-color: #444; }
+
+
+/* ชิปกรองนามสกุลไฟล์ + ป้ายบนรูป */
+.is-exts { display: flex; align-items: center; gap: 5px; padding: 0 10px 8px; flex-wrap: wrap; }
+.is-extlab { font-size: 11px; color: #888; }
+.is-extchip { border: 1px solid #F5C89B; background: #FFF8F1; color: #C75B00; border-radius: 999px;
+  padding: 3px 11px; font-size: 11px; cursor: pointer; font-weight: 600; }
+.is-extchip:hover { border-color: #F47C20; }
+.is-extchip.on { background: #F47C20; color: #fff; border-color: #F47C20; }
+.is-ext { position: absolute; left: 4px; bottom: 4px; background: rgba(0,0,0,.62); color: #fff;
+  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+body.dark .is-it img { background: #1d1d1d; }
+body.dark .is-extchip { background: #3a2c1d; border-color: #6b4a28; color: #FFB061; }
+body.dark .is-extchip.on { background: #F47C20; color: #fff; }
+
+
+/* พรีวิวรูปเต็มก่อนเลือก (ค้นรูป) */
+.is-preview { position: fixed; inset: 0; z-index: 130; background: rgba(0,0,0,.72); display: grid; place-items: center; cursor: zoom-out; }
+.isp-box { background: #fff; border-radius: 12px; overflow: hidden; max-width: 76vw; max-height: 82vh; display: flex; flex-direction: column; cursor: default; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.isp-box img { max-width: 76vw; max-height: 66vh; object-fit: contain; background: #f4f4f4; display: block; }
+.isp-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 14px; }
+.isp-t { font-size: 12px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.isp-act { display: flex; gap: 7px; flex: none; }
+body.dark .isp-box { background: #2d2d2d; }
+body.dark .isp-t { color: #aaa; }
+
+
+/* จัดแถวเครื่องมือแถว 2 ให้ตรงแนวกับโลโก้ทั้งสองแถว) */
+.ribbon { position: relative; padding-left: 210px; }
+.ribbon .brand { position: absolute; left: 8px; top: 4px; }
+/* layout ตรึงทุกขนาดหน้าต่าง — ไม่ยุบเป็น static ตอนแคบ (ใช้ scrollbar แนวนอนแทน) */
+
+
+/* ชื่อไฟล์อยู่แนวเดียวกับโลโก้ (ไม่มีบรรทัดรอง) */
+.ribbon .brand { align-items: center; }
+#brandTtl { max-width: 132px; line-height: 1.15; }
+#brandTtl small { display: none; }
+
+
+/* ชื่อไฟล์ชิดบน เสมอแนวขอบบนของโลโก้ */
+.ribbon .brand { align-items: flex-start !important; }
+#brandTtl { padding-top: 1px; }
+
+
+/* จัดสัดส่วนหัว: โลโก้ + ชื่อไฟล์ พอดีกับกลุ่มสถานะใต้ชื่อ */
+.logo-img { width: 56px; height: 56px; }
+#brandTtl { font-size: 13.5px; font-weight: 800; max-width: 230px; }
+.ribbon { padding-left: 232px; }
+.grp-status { left: 70px; }
+/* (เดิมมี @media max-width:760px ยุบ brand/status เป็น static — ลบออกเพื่อให้ตำแหน่งคงที่ เลื่อน scrollbar เอา) */
+
+
+/* ชื่อไฟล์ยาว → ตัดท้ายด้วย … บรรทัดเดียว ไม่ดันความสูง */
+#brandTtl { max-width: 224px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ความยาวกลุ่มหัวตามที่ผู้ใช้กำหนด (ชื่อไฟล์เต็มพอดี) */
+#brandTtl { max-width: 250px; }
+.ribbon { padding-left: 258px; }
+.grp-status { width: 248px; }
+
+
+/* แถบหมวดหมู่ในหน้าตั้งค่า — เมนูแนวตั้งด้านข้าง จัดกลุ่มตามหมวด */
+.settabs { display: flex; flex-direction: column; gap: 1px; padding: 8px 8px 10px; background: #FBFAF8; border-right: 1px solid #eee; overflow-y: auto; overflow-x: hidden; }
+.settab-grp { font-size: 10px; font-weight: 800; color: #b08050; text-transform: uppercase; letter-spacing: .5px; padding: 10px 10px 3px; flex: none; }
+.settab-grp:first-child { padding-top: 2px; }
+.settab { border: none; background: none; padding: 7px 11px; font-size: 12.5px; font-family: inherit;
+  cursor: pointer; color: #5a5a5a; border-radius: 7px; font-weight: 600; white-space: nowrap; line-height: 1.45;
+  text-align: left; width: 100%; overflow: hidden; text-overflow: ellipsis; flex: none; min-height: 30px; }
+.settab:hover { background: #FFF0E0; color: #C75B00; }
+.settab.on { background: #F47C20; color: #fff; box-shadow: 0 2px 6px rgba(244,124,32,.28); }
+.settab.on:hover { background: #ef7012; color: #fff; }
+body.dark .settabs { background: #242424; border-color: #444; }
+body.dark .settab-grp { color: #c08a55; }
+body.dark .settab { background: none; color: #ccc; }
+body.dark .settab:hover { background: #4a3522; color: #FFB061; }
+body.dark .settab.on { background: #F47C20; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+
+
+/* กลุ่มหัวรวมกระชับ (โลโก้+ชื่อ+สถานะ) ความกว้างพอดี */
+.ribbon { padding-left: 200px; }
+#brandTtl { max-width: 132px; }
+.grp-status { left: 66px; width: 130px; }
+.grp-status .schedchip { font-size: 9px; padding: 0 5px; height: 17px; max-width: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-status #saveState { font-size: 9px; width: 100%; }
+
+
+/* สถานะบันทึก: ตัวอักษรใหญ่ขึ้น จัดกึ่งกลาง */
+.grp-status { align-items: center; }
+.grp-status #saveState { font-size: 10.5px !important; width: 100%; text-align: center; font-weight: 700; }
+.grp-status .schedchip { font-size: 9.5px; }
+
+
+/* กลุ่มสถานะ: ก้นกลุ่มชิดแนวล่างโลโก้ + จัดกึ่งกลาง + บันทึกแล้วตัวเขียวใหญ่ */
+.grp-status { top: 34px; justify-content: center; align-content: center; }
+.grp-status .schedchip { font-size: 9.5px; }
+.grp-status #saveState { font-size: 11.5px !important; text-align: center; font-weight: 800; }
+#saveState.clean { color: #12b552 !important; }
+
+
+/* โลโก้ใหญ่ขึ้นเหมาะสม + ไม่ให้ปุ่มควบคุมล้นเฟรม (ใช้คลิก/คลิกขวาเมนูไทยแทน) */
+.logo-img { width: 60px; height: 60px; }
+
+
+/* schedChip ยาวขึ้น แต่ ⏱+⚙️ คงอยู่บรรทัดเดียว */
+.grp-status { width: 168px; }
+.grp-status .schedchip { max-width: none; }
+#schedChip { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#condChip { flex: none; }
+
+
+/* ⚙️ ตั้งค่า เหลือไอคอน + tooltip เล็กตอน hover */
+#condChip { flex: none; width: 26px; padding: 0; text-align: center; font-size: 13px; }
+.grp-status { width: 150px; }
+
+/* กลุ่มสถานะ: กรอบคลุมยาวเท่าคอลัมน์ C + 2 แถวสมดุล */
+.grp-status { box-sizing: border-box; width: 132px; column-gap: 2px; row-gap: 2px; align-content: center; align-items: center; justify-content: flex-start;
+  border: 1px solid #ecd6bd; background: #FFF7EE; border-radius: 8px; padding: 3px 3px; }
+.grp-status #schedChip { flex: 0 0 auto; width: calc(100% - 26px); min-width: 0; max-width: none; font-size: 8.5px; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-status #condChip { flex: 0 0 24px; width: 24px; font-size: 12px; }
+.grp-status .dbsrc { flex: 0 0 auto; height: 18px; font-size: 8px; padding: 0 4px; gap: 2px; }
+.grp-status .dbsrc-dot { width: 5px; height: 5px; }
+.grp-status #saveState { flex: 1 1 auto; width: auto !important; min-width: 0; height: 18px; line-height: 18px; margin: 0 !important; text-align: right; font-size: 8px !important; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grp-status .schedchip { height: 18px; }
+
+
+/* ไอคอนเกียร์อยู่กึ่งกลางพอดี สมดุลกับชิปพื้นดำ */
+#condChip { display: inline-flex; align-items: center; justify-content: center; line-height: 1; height: 18px; }
+
+
+/* ขยับโลโก้ลงนิดให้สมดุลกับชื่อ+สถานะ */
+.ribbon .brand { top: 9px; }
+
+
+/* แถบสีล่าสุดใต้ปุ่มเทสี (เหมือน Excel) */
+.fillbar { display: inline-block; width: 16px; height: 4px; border-radius: 1px; background: #FFEB3B; margin: 0 2px; vertical-align: middle; border: 1px solid rgba(0,0,0,.15); }
+
+
+/* "ยังไม่เซฟ" เป็นสีส้ม */
+#saveState .unsaved { color: #F47C20; font-weight: 800; }
+
+
+/* แถวที่มีการแก้ไข: มุมฟ้าสดใส บนขวาของช่องเลขแถว (แทนจุด) */
+td.sg-g { position: sticky; left: 0; z-index: 6; }
+.gchg-corner { position: absolute; top: 0; right: 0; width: 0; height: 0;
+  border-style: solid; border-width: 0 7px 7px 0; border-color: transparent #1aa3ff transparent transparent; }
+/* แถวที่ลิงก์กับสินค้าใน DB: แถบสีด้านซ้าย + ไล่เฉดอ่อนๆ · สีปรับได้ในตั้งค่า · เลขแถวคงสีเดิมตาม rowhdr */
+td.sg-g.glinked { font-weight: 700;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--dblink-ok, #15A34A) 24%, transparent) 0, color-mix(in srgb, var(--dblink-ok, #15A34A) 8%, transparent) 6px, var(--rowhdr-bg, #EFEFEF) 11px); }
+td.sg-g.glinked-bad {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--dblink-bad, #E5322E) 24%, transparent) 0, color-mix(in srgb, var(--dblink-bad, #E5322E) 8%, transparent) 6px, var(--rowhdr-bg, #EFEFEF) 11px); }
+.glink-corner { position: absolute; left: 1.5px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 64%; border-radius: 3px; pointer-events: none;
+  background: var(--dblink-ok, #15A34A); box-shadow: 0 0 0 .5px rgba(255,255,255,.5); }
+.glinked-bad .glink-corner { background: var(--dblink-bad, #E5322E); }
+/* พรีวิวสีลิงก์ในหน้าตั้งค่า */
+.dblink-prev { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+.dblink-prev-row { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #555;
+  padding: 5px 12px 5px 7px; border-left: 4px solid var(--c, #15A34A); border-radius: 4px;
+  background: color-mix(in srgb, var(--c, #15A34A) 10%, #fff); }
+.dblink-prev-num { font-weight: 800; font-size: 13px; }
+body.dark .dblink-prev-row { color: #ccc; background: color-mix(in srgb, var(--c, #15A34A) 22%, #2a2a2a); }
+
+
+/* ถังเทสีเด่นขึ้น: ใหญ่ขึ้น + ขอบเข้ม */
+#btnFill .ic-svg { width: 19px; height: 19px; }
+#btnFill { background: #FFF8F1; }
+#btnFill:hover { background: #FFE8D1; }
+
+
+/* ช่องฟอนต์: กันยุบกว้าง 0 (หลังทำให้ลากได้) */
+#fontFam { min-width: 92px !important; flex: none; width: 108px; }
+
+
+/* ไอคอนจัดแนวตั้งหนาขึ้น เห็นชัด */
+.va-ic { border-width: 1.6px; }
+.va-ic i { height: 3px; }
+.al-ic i { height: 2.6px; }
+
+
+/* ช่องฟอนต์ต้องเห็นเสมอ แม้กลุ่มถูกยุบ */
+.ribbon .grp.clps > #fontFam { display: inline-block !important; }
+
+
+/* ย้ายช่องค้นหาไปอยู่ขวาสุดของแถว (แนวเดิม) */
+.fxbar .flt-ic { order: 10; margin-left: auto; }
+.fxbar .flt-q { order: 10; }
+.fxbar #fclr { order: 11; }
+.fxbar .flt-count { order: 11; }
+
+
+/* แถบสูตร fx ย้ายมาอยู่กลางแถว 2 (เติมช่องว่างระหว่างเครื่องมือซ้ายกับช่องค้นหาขวา) */
+.fxbar > .grp-fx { display: flex !important; order: 5; flex: 1 1 220px; min-width: 180px; margin: 0 4px; gap: 5px; align-items: center; }
+.fxbar > .grp-fx #fx { flex: 1 1 auto; max-width: none; min-width: 120px; height: 26px; }
+.fxbar > .grp-fx .namebox { width: 52px; height: 26px; flex: none; }
+
+
+/* ย่อป้าย fx ให้เล็ก พอสังเกต */
+.fxbar > .grp-fx .fxlab { font-size: 10px; color: #999; padding: 0 1px; }
+
+
+/* ช่องชื่อเซลล์ (A1) สั้นลง พอ 3 ตัวอักษร */
+.fxbar > .grp-fx .namebox { width: 34px; min-width: 34px; padding: 0 2px; font-size: 11px; }
+
+
+/* ปุ่มไอคอนในแถว 2 ความกว้างเท่ากัน กระชับ */
+.fxbar > .btn { width: 30px; min-width: 30px; max-width: 30px; padding: 0; justify-content: center; gap: 0; box-sizing: border-box; font-size: 10px; overflow: hidden; }
+.fxbar > .btn .ic { margin: 0; }
+.fxbar > .btn .ic-svg { width: 16px; height: 16px; }
+
+/* ✦ แถว 3: ไอคอนใหญ่ขึ้น + แยกสีลูกศรให้เห็นชัด + เส้นขีดแบ่งบางๆ โทนอุ่น
+   (อ้างอิงสไตล์วิดเจ็ตขนาดฟอนต์ .fssize ที่ผู้ใช้ชี้เป็นตัวอย่าง) */
+.fxbar > .btn { width: 33px; min-width: 33px; max-width: 33px; position: relative; }
+.fxbar > .btn .ic-svg { width: 20px; height: 20px; }
+.fxbar > .btn .ic { font-size: 15px; line-height: 1; }
+/* ลูกศร ย้อนกลับ/ทำซ้ำ แยกสีให้ต่างกันชัด (เดิมเทาทึบ #333) */
+#btnUndo .ic-svg path { stroke: #2a6fdb; }      /* ย้อนกลับ = น้ำเงิน */
+#btnRedo .ic-svg path { stroke: #1f9d57; }      /* ทำซ้ำ = เขียว */
+body.dark #btnUndo .ic-svg path { stroke: #5b9bff; }
+body.dark #btnRedo .ic-svg path { stroke: #4cc585; }
+/* ไอคอนเครื่องมือแถว 2 — มีพื้นหลัง+เส้นกรอบเหมือนปุ่มในริบบอน (เช่น ปุ่มขีดเส้นใต้) */
+.fxbar > #btnFill, .fxbar > #btnUndo, .fxbar > #btnFont,
+.fxbar > #btnRedo, .fxbar > #btnBorder, .fxbar > #btnMerge {
+  background: #fff; border: 1px solid #c4c4c4; border-radius: 4px; box-shadow: none;
+  width: 30px; min-width: 30px; max-width: 30px;
+}
+.fxbar > #btnFill:hover, .fxbar > #btnUndo:hover, .fxbar > #btnFont:hover,
+.fxbar > #btnRedo:hover, .fxbar > #btnBorder:hover, .fxbar > #btnMerge:hover {
+  background: #FFF3E6; border-color: #F47C20;
+}
+body.dark .fxbar > #btnFill, body.dark .fxbar > #btnUndo, body.dark .fxbar > #btnFont,
+body.dark .fxbar > #btnRedo, body.dark .fxbar > #btnBorder, body.dark .fxbar > #btnMerge {
+  background: #3a3a3a; border-color: #555;
+}
+body.dark .fxbar > #btnFill:hover, body.dark .fxbar > #btnUndo:hover, body.dark .fxbar > #btnFont:hover,
+body.dark .fxbar > #btnRedo:hover, body.dark .fxbar > #btnBorder:hover, body.dark .fxbar > #btnMerge:hover {
+  background: #4a3522; border-color: #F47C20;
+}
+
+
+/* ⋯ badge จำนวนไอคอนข้างใน + หัวข้อหมวดหมู่ */
+#btnMore { position: relative; overflow: visible; }
+.more-badge { position: absolute; top: -5px; right: -5px; background: #F47C20; color: #fff;
+  font-size: 9px; font-weight: 800; min-width: 15px; height: 15px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; padding: 0 3px; line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,.3); pointer-events: none; box-sizing: border-box; }
+.morecat { font-size: 10px; font-weight: 800; color: #C75B00; margin: 5px 0 1px; padding: 5px 2px 1px;
+  border-top: 1px solid #eee; letter-spacing: .3px; }
+.morecat:first-child { border-top: none; padding-top: 0; }
+body.dark .morecat { color: #FFB061; border-color: #444; }
+
+
+/* สีเส้นประ ลาก/คัดลอก (ปรับในตั้งค่า) */
+:root { --fill-color: #F47C20; --cpm-color: #0a8f3c; --cpm-fade: rgba(10,143,60,.25); }
+.markgrid .sw { width: 24px; height: 22px; }
+.markgrid .sw.selmark { outline: 2px solid #1a1a1a; outline-offset: 1px; }
+.markprev { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+.markprev-cell { display: inline-block; padding: 9px 22px; background: #fff7ef; border-radius: 3px; font-size: 12px; color: #666; outline: 1.5px dashed #F47C20; outline-offset: -2px; }
+body.dark .markprev-cell { background: #2f2f2f; color: #bbb; }
+
+
+/* หัวข้อย่อยในแท็บสี + ปุ่มไม่มีพื้นหลัง */
+.marklbl { font-size: 11px; color: #777; margin: 8px 0 3px; font-weight: 600; }
+.markgrid .sw.none { background: #fff; position: relative; }
+.markgrid .sw.none::after { content: ''; position: absolute; inset: 2px; background: linear-gradient(45deg,transparent 45%,#e03 46%,#e03 54%,transparent 55%); }
+body.dark .markgrid .sw.none { background: #333; }
+body.dark .marklbl { color: #aaa; }
+
+
+/* กรอบเส้นทึบรอบช่วงที่เลือกทั้งหมด (สีที่บันทึกไว้) */
+#selRect { position: absolute; pointer-events: none; z-index: 4; box-sizing: border-box;
+  border: 2px solid var(--fill-color, #F47C20); border-radius: 1px; display: none; }
+@media print { #selRect { display: none !important; } }
+
+/* ชั้นเส้นขอบแบบ Excel (SVG overlay) — วาดเส้นที่ผู้ใช้ตีไว้ให้คมชัด ทับบนตาราง
+   อยู่เหนือพื้น/สีเลือก (z1–2) แต่อยู่ใต้กรอบเลือก (z4) และหัวแถว/คอลัมน์ที่ตรึงไว้ (z7) */
+#bdSvg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; overflow: visible; }
+@media print { #bdSvg { z-index: 3; } }
+
+
+/* widget ขนาดตัวอักษรแบบ Excel: เลขซ้าย + ลูกศรขึ้น/ลงเล็กๆ ขวา */
+.fssize { display: inline-flex; align-items: stretch; height: 28px; border: 1px solid #c4c4c4; border-radius: 5px; overflow: hidden; background: #fff; }
+.fssize:focus-within { outline: 2px solid #F47C20; border-color: #F47C20; }
+.fssize #fsBox { width: 30px; border: none; height: auto; text-align: center; font-size: 12px; font-family: inherit; padding: 0 2px; background: transparent; color: #333; }
+.fssize #fsBox:focus { outline: none; }
+.fssteps { display: flex; flex-direction: column; width: 15px; border-left: 1px solid #ddd; }
+.fsstep-b { flex: 1; border: none; background: #FFF3E6; color: #C75B00; font-size: 6px; line-height: 1; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; }
+.fsstep-b:hover { background: #FFE0C2; }
+.fsstep-b:first-child { border-bottom: 1px solid #f0d9c0; }
+body.dark .fssize { background: #333; border-color: #555; }
+body.dark .fssize #fsBox { color: #ddd; }
+body.dark .fssteps { border-color: #555; }
+body.dark .fsstep-b { background: #4a3522; color: #FFB061; border-color: #5a4228; }
+
+
+/* เลือกหลายช่อง: ช่อง active ไม่ต้องมีเส้นทึบซ้อนกับกรอบใหญ่ (เหลือมือจับเติมไว้) */
+#grid.hasrange td.sg-c.act { outline: none !important; box-shadow: none !important; }
+
+
+/* เมนูไฟล์ (รวมบันทึกเป็น/เปิดไฟล์เก่า) */
+.filepop { width: 190px; display: none; flex-direction: column; gap: 5px; }
+.filepop.open { display: flex; }
+.filepop .btn { width: 100%; justify-content: flex-start; }
+.filepop .btn .tx { display: inline !important; }
+
+
+/* ปุ่ม ⋯ เป็นจุดวางไอคอน (ลากมาเก็บ) */
+#btnMore.drophot { background: #F47C20; color: #fff; outline: 2px dashed #F47C20; outline-offset: 2px; transform: scale(1.12); }
+
+
+/* แท็บแถว/คอลัมน์พิเศษ */
+.iconpick { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.iconpick .ic-opt { width: 30px; height: 28px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font-size: 15px; display: grid; place-items: center; }
+.iconpick .ic-opt.on { border-color: #F47C20; background: #FFF3E6; outline: 1px solid #F47C20; }
+.patpick { display: flex; gap: 6px; margin: 2px 0 8px; }
+.patpick .pat-opt { flex: 1; height: 30px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 11px; display: grid; place-items: center; color: #555; }
+.patpick .pat-opt.on { border-color: #F47C20; background: #FFF3E6; color: #C75B00; font-weight: 700; }
+body.dark .iconpick .ic-opt, body.dark .patpick .pat-opt { background: #333; border-color: #555; color: #ccc; }
+.admprev { margin-top: 12px; padding: 10px; border-radius: 6px; font-size: 12px; }
+
+
+/* ปุ่มไฟล์ 🗂️ ให้กว้างเท่าไอคอนอื่น (ลูกศรเล็กลง) */
+#btnFile { width: 34px; min-width: 34px; max-width: 34px; padding: 0; justify-content: center; gap: 1px; font-size: 8px; box-sizing: border-box; }
+#btnFile .ic { font-size: 15px; margin: 0; }
+
+
+/* ปุ่มสีอักษรแบบ split: A (ใช้สีล่าสุด) + ▾ (เลือกสีใหม่) */
+#btnFont .fc-caret { font-size: 8px; margin-left: 1px; color: #888; }
+#btnFont .ic { padding: 0 1px; border-radius: 3px; }
+#btnFont:hover .ic { background: rgba(244,124,32,.18); }
+
+
+/* จับหัวข้อ popup เพื่อลากย้าย */
+.swpop .lbl:first-child { cursor: grab; user-select: none; }
+.swpop .lbl:first-child:active { cursor: grabbing; }
+
+
+/* ลูกศร ▾ ของปุ่มเส้นขอบ/สี กดง่ายขึ้น */
+.fc-caret { font-size: 9px; padding: 3px 2px; margin-left: 0; }
+
+
+/* คลิกขวาที่ปุ่ม (.wide) = ขยายความกว้างพอดีข้อความ (ไม่ถูกตัด) */
+.ribbon .btn.wide, .fxbar .btn.wide { width: auto !important; min-width: 0 !important; max-width: none !important; padding: 0 9px !important; gap: 4px !important; }
+.btn.wide .fc-caret { font-size: 9px; }
+
+
+/* ชื่อปุ่มบนแถบเครื่องมือ หนาและใหญ่ขึ้น */
+.ribbon .btn .tx, .fxbar .btn .tx { font-weight: 700; font-size: 12.5px; }
+
+
+/* เมนูรูปแบบเส้นขอบ แบบตาราง 3x3 (ไม่สูง) */
+.bd-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 6px 0; }
+.bd-grid .bd-it { display: grid; place-items: center; padding: 7px 0; border: 1px solid #e2e2e2; border-radius: 6px; cursor: pointer; }
+.bd-grid .bd-it:hover { background: #FFF3E6; border-color: #F47C20; }
+.bd-none-it { display: flex; align-items: center; gap: 6px; padding: 6px 4px; cursor: pointer; border-top: 1px dashed #e0d5c5; margin-top: 4px; font-size: 11.5px; }
+.bd-none-it:hover { color: #C75B00; }
+body.dark .bd-grid .bd-it { border-color: #4a4a4a; }
+body.dark .bd-grid .bd-it:hover { background: #4a3522; }
+
+
+/* ลายเส้น แบบตาราง 3x3 พร้อมตัวอย่างเส้นจริง */
+.bdstyle-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.bdstyle-grid .bd-s { height: 22px; border: 1px solid #e2e2e2; border-radius: 5px; display: grid; place-items: center; cursor: pointer; font-size: 0; }
+.bdstyle-grid .bd-s::after { content: ''; width: 72%; border-bottom: 3px var(--st, solid) #333; }
+.bdstyle-grid .bd-s[data-bds="dashed-thick"]::after { border-bottom-width: 4px; }
+.bdstyle-grid .bd-s:hover { background: #FFF3E6; border-color: #F47C20; }
+.bdstyle-grid .bd-s.on { border-color: #F47C20; background: #FFF8F1; outline: 1px solid #F47C20; }
+body.dark .bdstyle-grid .bd-s { border-color: #4a4a4a; }
+body.dark .bdstyle-grid .bd-s::after { border-color: #ddd; }
+
+
+/* ยางลบเส้น — ปุ่มโทนชมพูอ่อน */
+.bd-grid .bd-it.bd-erase { border-color: #f0c0c8; }
+.bd-grid .bd-it.bd-erase:hover { background: #fdeef0; border-color: #e0707f; }
+
+/* 🔒 ปุ่มสลับโหมดตอนดูไฟล์ประวัติ (ล็อกอ่านอย่างเดียว) */
+#btnMode.locked-arch, #btnMode:disabled { opacity: .5; cursor: not-allowed; }
+
+
+/* ── อัพเดทราคา: เลือกเวลามีผล (การ์ดเลือกได้ + ปุ่มลัด + ตัวอย่างวันเวลาไทย) ── */
+.upd-head { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 13px; }
+.upd-stat { font-size: 11.5px; padding: 4px 11px; border-radius: 999px; background: #FFF3E6; color: #C75B00; font-weight: 700; }
+.upd-stat.zero { background: #f1f1f1; color: #999; }
+.upd-stat.db { background: #eaf2ff; color: #1a5fb4; }
+.updopt { display: block; border: 1.5px solid #e2e2e2; border-radius: 11px; padding: 11px 13px; margin-bottom: 9px; cursor: pointer; transition: .12s; background: #fff; }
+.updopt:hover { border-color: #F4B57F; }
+.updopt.on { border-color: #F47C20; background: #FFF8F1; box-shadow: 0 0 0 3px rgba(244,124,32,.12); }
+.updopt-top { display: flex; align-items: center; gap: 10px; }
+.updopt-radio { width: 18px; height: 18px; border: 2px solid #c4c4c4; border-radius: 50%; flex: none; position: relative; transition: .12s; }
+.updopt.on .updopt-radio { border-color: #F47C20; }
+.updopt.on .updopt-radio::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: #F47C20; }
+.updopt-title { font-weight: 800; font-size: 14px; }
+.updopt-desc { font-size: 11.5px; color: #8a8a8a; margin: 6px 0 0 28px; line-height: 1.45; }
+.updopt-body { margin: 11px 0 1px 28px; display: none; }
+.updopt.on .updopt-body { display: block; }
+.upd-dt { width: 100%; height: 38px; border: 1px solid #c4c4c4; border-radius: 8px; padding: 0 10px; font-family: inherit; font-size: 13.5px; box-sizing: border-box; }
+.upd-dt:focus { outline: 2px solid #F47C20; border-color: #F47C20; }
+.upd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.upd-chip { border: 1px solid #F5C89B; background: #FFF3E6; color: #C75B00; border-radius: 999px; padding: 5px 12px; font-size: 11.5px; cursor: pointer; font-family: inherit; font-weight: 600; }
+.upd-chip:hover { background: #FFE0C2; }
+.upd-chip.on { background: #F47C20; color: #fff; border-color: #F47C20; }
+.upd-echo { margin-top: 11px; font-size: 12px; color: #0a7d3c; background: #eefaf1; border: 1px solid #cdeed7; border-radius: 8px; padding: 8px 11px; line-height: 1.5; }
+.upd-echo.warn { color: #a05c1a; background: #FFF6E6; border-color: #F3D9A6; }
+body.dark .updopt { background: #2a2a2a; border-color: #444; }
+body.dark .updopt:hover { border-color: #7a5a38; }
+body.dark .updopt.on { background: #3a2c1c; }
+body.dark .updopt-title { color: #eee; }
+body.dark .upd-dt { background: #333; border-color: #555; color: #eee; }
+body.dark .upd-echo { background: #1f2e22; border-color: #2f5a3c; color: #7fdaa0; }
+body.dark .upd-echo.warn { background: #332a18; border-color: #5a4a28; color: #e0b060; }
+
+/* ===== border popup: ขยายให้พอดี ไม่มีแถบเลื่อนซ้าย-ขวา/ล่าง ===== */
+.bdpop { width: 236px; }
+/* แถวความหนาเส้น: ปุ่มแบ่งความกว้างเท่ากันเต็มแถว ไม่ล้น */
+#bdWeights { gap: 4px; }
+#bdWeights .bd-w { flex: 1 1 0; min-width: 0; padding: 5px 2px; }
+#bdWeights .bd-w i { width: 100%; max-width: 30px; }
+/* แถวสีเส้น: ให้พอดีในความกว้างใหม่ */
+#bdColors { flex-wrap: wrap; gap: 5px; }
+/* ลดระยะแนวตั้งเล็กน้อย ให้เตี้ยลง ไม่ต้องเลื่อนแนวตั้ง */
+.bdpop .lbl { margin: 1px 0 3px; }
+.bdpop .bd-opts { margin: 2px 0 4px; }
+.bdpop .bd-grid { margin: 4px 0; gap: 3px; }
+.bdpop .bd-grid .bd-it { padding: 5px 0; }
+.bdpop .bdstyle-grid { gap: 3px; }
+.bdpop .bdstyle-grid .bd-s { height: 19px; }
+.bdpop .bd-none-it { padding: 4px 4px; }
+/* ไฮไลต์ลักษณะตาราง / ไม่มีเส้น / ยางลบ ที่เลือกล่าสุด (เหมือนลายเส้น+ความหนา) */
+.bdpop .bd-grid .bd-it.on { border-color: #F47C20; background: #FFF3E6; box-shadow: 0 0 0 1px #F47C20 inset; }
+.bdpop .bd-none-it.on { color: #C75B00; background: #FFF3E6; border-radius: 6px; font-weight: 700; }
+body.dark .bdpop .bd-grid .bd-it.on { background: #4a3522; }
+body.dark .bdpop .bd-none-it.on { background: #4a3522; }
+
+/* ================= Unified window chrome (กลุ่ม A) ================= */
+/* A1: ระบบสีหัวหน้าต่างสื่อความหมาย — ดูข้อมูล=น้ำเงิน · บันทึก/ประวัติ=เขียว · ผู้ใช้=ม่วง · ตั้งค่า=ส้ม · รูป=เทาดำ */
+.gl-head { background: #33373d; }      /* แกลเลอรีรูป = กลุ่มรูป (เทาดำ) */
+/* A4: หัวหน้าต่างมาตรฐานเดียวกัน (ระยะ/ฟอนต์เท่ากันทุกจอ) */
+.dp-head, .gl-head, .iv-head, .stm-head, .aud-head, .usr-head {
+  padding: 11px 15px; font-size: 13.5px; font-weight: 700; gap: 8px;
+}
+/* ไอคอนลาก ⠿ เฉพาะหน้าต่างที่ลากได้ (รายละเอียด/แกลเลอรี/รูปขยาย) */
+.gl-head::before, .iv-head::before { content: '\2630'; opacity: .5; font-size: 12px; margin-right: 4px; }
+.gl-head, .iv-head { cursor: grab; }
+.gl-head:active, .iv-head:active { cursor: grabbing; }
+/* A2: ปุ่มปิด ✕ มาตรฐานเดียว — ทุกจอขนาด/hover เท่ากัน */
+.pk-x, .stm-x, .stm-catx, .aud-x, .usr-x, .iv-x, .emoji-x, .win-x {
+  cursor: pointer; width: 26px; height: 26px; flex: none; opacity: .9; font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+  transition: background .12s, opacity .12s; line-height: 1;
+}
+.pk-x:hover, .stm-x:hover, .stm-catx:hover, .aud-x:hover, .usr-x:hover, .iv-x:hover, .emoji-x:hover, .win-x:hover {
+  background: rgba(255,255,255,.22); opacity: 1;
+}
+/* A3: แท็บใน Audit/ผู้ใช้ — pill กลมมนเต็ม สม่ำเสมอ (active = สีหัวหน้าต่าง) */
+.aud-tab, .usr-tab { border-radius: 999px; border-color: #e4e4e4; padding: 6px 14px; }
+
+
+/* ===== สีปียาง DOT: ตัวคั่นช่วง + จานสีในตั้งค่า ===== */
+.dot-sep { margin: 0 1px; }
+.dot-yr { font-weight: 700; }
+.dot-flag { font-weight: 800; letter-spacing: .3px; }
+.dotpal { gap: 5px; grid-template-columns: repeat(11, minmax(0, 1fr)) !important; }
+.dotpal .sw { width: 26px; height: 22px; border: 1px solid #999; border-radius: 4px; cursor: pointer; }
+.dotpal .sw.on { outline: 2px solid #1a1a1a; outline-offset: 1px; box-shadow: 0 0 0 1px #fff inset; }
+body.dark .dotpal .sw.on { outline-color: #fff; }
+.dot-wrap { line-height: 1; display: inline-block; }
+/* popup ราคาแยกราย DOT */
+.dotpop { position: fixed; z-index: 80; background: #fff; border: 1px solid #b9b9b9; border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.28); min-width: 340px; max-width: 92vw; font-family: inherit; overflow: hidden; }
+.dotpop-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px;
+  background: #1F8A5B; color: #fff; font-weight: 700; font-size: 13.5px; cursor: move; user-select: none; }
+.dotpop-x { cursor: pointer; opacity: .9; font-size: 14px; }
+.dotpop-x:hover { opacity: 1; }
+.dotpop-sub { padding: 7px 14px; font-size: 12px; color: #666; background: #FBFAF8; border-bottom: 1px solid #eee; }
+.dotpop-t { width: 100%; border-collapse: collapse; }
+.dotpop-t th, .dotpop-t td { padding: 6px 9px; border-bottom: 1px solid #eee; text-align: center; font-size: 12.5px; }
+.dotpop-t th { background: #f4f7f4; color: #555; font-weight: 700; }
+.dotpop-dot { font-weight: 800; font-size: 13.5px; }
+.dotpop-qty { color: #444; font-weight: 600; }
+.dotpop-zero { color: #c0392b; font-weight: 700; }
+.dotpop-code { font-family: Consolas, monospace; font-weight: 700; letter-spacing: .5px; color: #1a5fb4; }
+.dotpop-in { width: 78px; height: 28px; border: 1px solid #c4c4c4; border-radius: 5px; text-align: center; padding: 0 6px; font-family: inherit; font-size: 13px; }
+.dotpop-in:focus { outline: 2px solid #1F8A5B; border-color: #1F8A5B; }
+.dotpop-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid #eee; }
+body.dark .dotpop { background: #2a2a2a; border-color: #555; color: #ddd; }
+body.dark .dotpop-sub { background: #242424; color: #aaa; border-color: #444; }
+body.dark .dotpop-t th { background: #333; color: #ccc; }
+body.dark .dotpop-t th, body.dark .dotpop-t td { border-color: #444; }
+body.dark .dotpop-in { background: #333; border-color: #555; color: #eee; }
+/* ของกำลังเข้า (ดึงจาก DB): วันที่สั่ง + สถานะรับเข้า ในแผงรายละเอียด */
+.dp-incoming { margin: 8px 0; padding: 8px 11px; background: #FFF6E9; border: 1px solid #F3D9A6; border-radius: 8px; font-size: 12.5px; color: #8a5a1a; }
+.dp-incoming > b { color: #C75B00; }
+.dp-inc-row { margin-top: 3px; color: #888; font-size: 12px; }
+.dp-inc-st { font-weight: 700; color: #C75B00; }
+body.dark .dp-incoming { background: #3a2c18; border-color: #5a4528; color: #e0b878; }
+/* ป้ายแหล่งข้อมูล: เชื่อมเซิร์ฟเวอร์จริงไม่ได้ → แดง */
+.dbsrc-bad { background: #FDECEA; border-color: #f0a9a0; color: #C0392B; }
+.dbsrc-bad .dbsrc-dot { background: #E5322E; box-shadow: none; animation: none; }
+body.dark .dbsrc-bad { background: #3a2422; border-color: #6a3a36; color: #ff8a7a; }
+/* หัวเอกสาร (โลโก้+ชื่อ+สถานะ) — กระชับ 2 แถว อ่านง่าย ไม่ซ้อนทับ */
+.ribbon .brand { top: 6px; }
+.grp-status { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 3px; width: 150px; }
+.grp-status .schedchip { max-width: 40px; height: 17px; font-size: 9px; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grp-status #schedChip, .grp-status #condChip { flex: 0 0 auto; }
+.grp-status #condChip { height: 17px; width: 17px; }
+.grp-status .dbsrc { height: 17px; padding: 0 6px; font-size: 9px; }
+.grp-status #saveState { width: auto; font-size: 9px; }
+/* ย้าย ⚙ ตั้งค่า มาต่อหลัง "ใช้ราคา: ทันที" (แนวเดียวกัน) แล้วตามด้วย ●สถานะ */
+.grp-status #condChip { order: 1; }
+.grp-status #dbSrcBadge { order: 2; }
+.grp-status #saveState { order: 3; }
+/* ตัวบ่งชี้ลิงก์เงื่อนไขในแถวไอคอนสถานะ (ตั้งค่า) */
+.stdef-link { flex: none; cursor: help; font-size: 13px; opacity: .85; padding: 0 1px; }
+.stdef-link.nolink { opacity: .4; }
+/* คลิกไอคอน 🚚 ของกำลังเข้า → popup รายละเอียดซ้อนเหนือ */
+.dp-stchip-click { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.dp-stchip-click:hover { background: rgba(244,124,32,.14); border-radius: 4px; }
+.dp-incpop { position: fixed; z-index: 150; background: #fff; border: 1px solid #b9b9b9; border-radius: 10px; box-shadow: 0 14px 44px rgba(0,0,0,.3); min-width: 230px; overflow: hidden; font-size: 13px; }
+.dp-incpop-h { display: flex; justify-content: space-between; align-items: center; padding: 9px 13px; background: #C75B00; color: #fff; font-weight: 700; }
+.dp-incpop-h .pk-x { cursor: pointer; opacity: .9; }
+.dp-incpop-h .pk-x:hover { opacity: 1; }
+.dp-incpop-b { padding: 10px 13px; }
+.dp-incpop-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; }
+.dp-incpop-row > span { color: #888; }
+.dp-incpop .dp-inc-st { color: #C75B00; }
+body.dark .dp-incpop { background: #2a2a2a; border-color: #555; color: #ddd; }
+body.pop-bg .dp-incpop { background: var(--pop-bg) !important; }
+body.pop-fg .dp-incpop { color: var(--pop-fg) !important; }
+.dp-incpop-foot { padding: 8px 13px; border-top: 1px solid #eee; }
+.dp-incpop-link { color: #2A6FDB; cursor: pointer; font-size: 12px; font-weight: 600; }
+.dp-incpop-link:hover { text-decoration: underline; }
+body.dark .dp-incpop-foot { border-color: #444; }
+/* ✕ รีเซ็ตสี popup (กลับค่าปกติ) */
+.dotpal .sw.dotpal-reset { display: grid; place-items: center; font-size: 11px; color: #999; background: #fff; font-weight: 700; }
+/* สีพื้นหลัง/ตัวอักษร popup ทุกหน้าต่าง (มีผลเมื่อตั้งค่าเท่านั้น) */
+/* สีพื้นหลัง/ตัวอักษร popup ทุกหน้าต่าง/ทุกฟังก์ชั่น (มีผลเมื่อตั้งค่าเท่านั้น) */
+body.pop-bg .cdlg, body.pop-bg .swpop, body.pop-bg .dotpop, body.pop-bg .sg-pricepop,
+body.pop-bg .sg-pick, body.pop-bg .sg-ctx, body.pop-bg .sg-colbind, body.pop-bg .sg-detail,
+body.pop-bg .sg-gallery, body.pop-bg .sg-imgviewer, body.pop-bg .sg-statusmenu, body.pop-bg .emoji-pick,
+body.pop-bg .stm-win, body.pop-bg .aud-win, body.pop-bg .usr-win, body.pop-bg .modal .dlg { background: var(--pop-bg) !important; }
+body.pop-fg .cdlg, body.pop-fg .swpop, body.pop-fg .dotpop, body.pop-fg .sg-pricepop,
+body.pop-fg .sg-pick, body.pop-fg .sg-ctx, body.pop-fg .sg-colbind, body.pop-fg .sg-detail,
+body.pop-fg .sg-gallery, body.pop-fg .sg-imgviewer, body.pop-fg .sg-statusmenu, body.pop-fg .emoji-pick,
+body.pop-fg .stm-win, body.pop-fg .aud-win, body.pop-fg .usr-win, body.pop-fg .modal .dlg { color: var(--pop-fg) !important; }
+/* จานสีเลือกเอง (🎨 color picker) */
+.dotpal-custom { position: relative; overflow: hidden; display: inline-block; }
+.dotpal-custom input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0; }
+.dotpal-custom-ic { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; pointer-events: none;
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
+
+
+/* ===== Ctrl+เลือกหลายหัวคอลัมน์/แถว (ไม่ต่อเนื่อง) → ไฮไลต์ส้ม พร้อมลากปรับขนาดพร้อมกัน ===== */
+.sg-h.multi, .sg-g.multi { background: #FFD9A8 !important; color: #7a3b00 !important; font-weight: 800;
+  box-shadow: inset 0 0 0 2px #F47C20; position: relative; z-index: 8; }
+body.dark .sg-h.multi, body.dark .sg-g.multi { background: #5e3c18 !important; color: #ffce9e !important; box-shadow: inset 0 0 0 2px #F49A50; }
+/* ตัวคอลัมน์/แถวที่ Ctrl+เลือกไว้หลายอัน → ฉาบสีส้มจาง (ข้อความยังอ่านชัด) ให้เห็นว่าคอลัมน์/แถวไหนถูกเลือก */
+.sg-c.multisel { position: relative; }
+.sg-c.multisel::after { content: ''; position: absolute; inset: 0; background: rgba(244,124,32,.15); pointer-events: none; z-index: 1; }
+.sg-c.multisel > * { position: relative; z-index: 2; }
+body.dark .sg-c.multisel::after { background: rgba(244,154,80,.20); }
+
+
+/* ================= แถบเครื่องมือคงที่ทุกขนาดหน้าต่าง (ไม่ reflow) =================
+   ห่อกลุ่มเครื่องมือไว้ใน .rb-tools กว้างคงที่ → wrap เหมือนกันทุกขนาดหน้าต่าง
+   → จำนวนแถวคงที่ · ▼ (ปรับขนาดฟอนต์) ไม่ขยับ · โลโก้/สถานะ (absolute) อยู่ที่เดิม */
+.rb-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 690px; flex: none; }
+.ribbon { flex-wrap: nowrap; }            /* มีแค่ rb-tools ที่ไหล (brand/status absolute ถูกดึงออกจาก flow) */
+.rb-tools .grp-fx { flex: 0 1 auto; }
+.rb-tools .grp-fx #fx { flex: 0 1 260px; width: 260px; max-width: 300px; min-width: 150px; }
+/* จอแคบมาก (ต่ำกว่าความกว้าง rb-tools) → เลื่อนแนวนอนได้ ไม่บังปุ่ม */
+.ribbon { overflow: visible; }
+
+
+/* ================= กลุ่มสถานะหัวเอกสาร — 2 แถวคงที่ (กันหลุดแถว) =================
+   แถวบน = ⏱ ใช้ราคา + ⚙ ตั้งค่า · แถวล่าง = ●สถานะแหล่งข้อมูล + ✓บันทึกแล้ว
+   จับคู่ไว้ในแถวเดียวกันเสมอ ไม่ว่าสถานะจะเป็น จำลอง / จริง(Live) / ออฟไลน์
+   (เป็นบล็อกสุดท้ายในไฟล์ → ทับกฎ .grp-status เดิมที่ wrap แล้วทำให้บันทึกแล้วหลุดแถว) */
+.grp-status { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important;
+  width: 132px !important; box-sizing: border-box; gap: 2px !important;
+  align-items: stretch !important; justify-content: center !important; align-content: center !important;
+  border: 1px solid #ecd6bd; background: #FFF7EE; border-radius: 8px; padding: 3px; }
+.grp-status .gs-r1, .grp-status .gs-r2 { display: flex; flex-wrap: nowrap; align-items: center; gap: 3px; width: 100%; min-width: 0; }
+.grp-status .gs-r2 { justify-content: center; }
+/* แถวบน */
+.grp-status .gs-r1 #schedChip { flex: 1 1 auto; min-width: 0; width: auto; max-width: none;
+  height: 18px; font-size: 9px; padding: 0 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-status .gs-r1 #condChip { flex: 0 0 24px; width: 24px; height: 18px; padding: 0; font-size: 12px; text-align: center; }
+/* แถวล่าง — สถานะ + บันทึกแล้ว อยู่บรรทัดเดียวกันเสมอ */
+.grp-status .gs-r2 .dbsrc { flex: 0 0 auto; height: 18px; font-size: 8.5px; padding: 0 6px; gap: 3px; white-space: nowrap; }
+.grp-status .gs-r2 .dbsrc-dot { width: 6px; height: 6px; }
+.grp-status .gs-r2 #saveState { flex: 0 1 auto; width: auto !important; min-width: 0; margin: 0 !important;
+  font-size: 8.5px !important; font-weight: 800; line-height: 18px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; text-align: left; }
+
+
+/* ================= ไอคอนเวกเตอร์จากเน็ต (Iconify) — ใช้เป็นไอคอนสถานะ + recolor =================
+   <i class="ic-svgimg"> = รูปไอคอนที่ลงสีด้วย mask → รับสีจาก color ของ span ครอบ (currentColor) */
+.ic-svgimg { display: inline-block; width: 1em; height: 1em; background-color: currentColor;
+  vertical-align: -0.14em; flex: none; }
+/* ในช่องสถานะบนตาราง: ขนาดพอดีมุมช่อง */
+.sg-st-ic .ic-svgimg { width: 1em; height: 1em; }
+.stdef-icon .ic-svgimg, .stm-pin .ic-svgimg, .dp-stchip .ic-svgimg { width: 1em; height: 1em; }
+/* ไอคอนเวกเตอร์ไม่ต้องมีเส้นขอบตัวอักษร (text-stroke) ของ .stdef-iconglyph */
+.stdef-iconglyph .ic-svgimg { -webkit-text-stroke: 0; }
+
+/* ── แผงค้นไอคอนจากเน็ตในตัวเลือกไอคอน ── */
+.emoji-net { flex: 1 1 auto; flex-direction: column; min-height: 160px; overflow: hidden; padding: 9px 11px 4px; }
+.enet-bar { display: flex; gap: 6px; align-items: center; }
+.enet-back { flex: none; font-size: 15px; padding: 0 9px; }
+.enet-q { flex: 1 1 auto; min-width: 0; padding: 7px 9px; border: 1px solid #d4d4d4; border-radius: 6px; font-size: 12.5px; font-family: inherit; }
+.enet-go { flex: none; font-size: 12px; }
+.enet-hint { font-size: 10px; color: #999; margin: 6px 1px 4px; line-height: 1.35; }
+.enet-note { font-size: 10.5px; color: #C75B00; font-weight: 600; margin: 0 1px 5px; line-height: 1.3; }
+body.dark .enet-note { color: #FFB061; }
+.enet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: 4px; overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; min-height: 0; padding-bottom: 6px; align-content: start; scrollbar-width: thin; }
+.enet-grid::-webkit-scrollbar { width: 10px; }
+.enet-grid::-webkit-scrollbar-thumb { background: #cfcfcf; border-radius: 6px; border: 2px solid #fff; }
+.enet-it { width: 100%; aspect-ratio: 1; border: 1px solid #eee; border-radius: 6px; background: #fff; cursor: pointer; font-size: 17px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; color: #555; }
+.enet-it:hover { background: #FFF3E6; border-color: #F47C20; color: #C75B00; }
+.enet-msg { grid-column: 1 / -1; color: #999; font-size: 12.5px; padding: 18px 8px; text-align: center; line-height: 1.4; }
+body.dark .enet-q { background: #3a3a3a; border-color: #555; color: #eee; }
+body.dark .enet-it { color: #ccc; background: #333; border-color: #4a4a4a; }
+body.dark .enet-it:hover { background: #4a3522; color: #ffce9e; }
+body.dark .enet-hint, body.dark .enet-msg { color: #888; }
+
