@@ -1,0 +1,433 @@
+/* ───────────────────────────────────────────────
+   css-05-darkmode-images.css  ·  [5/6]
+   แยกจาก xls2.css เดิม · โหลด <link> เรียง 01→06 (cascade เหมือนไฟล์เดียว ห้ามสลับลำดับ)
+─────────────────────────────────────────────── */
+/* ---------- โหมดมืด (สลับได้ที่ปุ่ม 🌙) ---------- */
+body.dark { background: #1e1e1e; color: #ddd; }
+body.dark .ribbon { background: linear-gradient(#2d2d2d,#262626); border-color: #444; }
+body.dark .btn { background: #3a3a3a; border-color: #555; color: #ddd; }
+body.dark .btn:hover { background: #4a3522; border-color: #F47C20; }
+body.dark .btn:disabled { opacity: .35; }
+body.dark .btn.primary, body.dark .btn.on { background: #F47C20; color: #fff; border-color: #D96A10; }
+body.dark .brand { border-color: #555; }
+body.dark .ttl small { color: #999; }
+body.dark .grp { border-color: #444; }
+body.dark .fxbar, body.dark .filebar, body.dark .fltbar { background: #262626; border-color: #444; color: #ccc; }
+body.dark .namebox, body.dark #fx, body.dark .flt-q, body.dark .flt-sel, body.dark select.flt-sel,
+body.dark .sheet-mini, body.dark #schedInput { background: #333; border-color: #555; color: #ddd; }
+body.dark .namebox { color: #FF9A3D; }
+body.dark .schedchip { background: #3a2c1d; border-color: #6b4a28; color: #FFB061; }
+body.dark .schedchip.hasdate { background: #4a3a14; border-color: #8a6d1a; color: #FFD061; }
+body.dark #saveState.clean { color: #6fcf8f; }
+body.dark .gridwrap { background: #242424; }
+body.dark .sg-abc th, body.dark th.sg-h { background: #333; color: #aaa; border-color: #555; }
+body.dark th.sg-h:hover { background: #4a3522; }
+body.dark .sg-abc th.on, body.dark th.sg-h.on { background: #5a3a1a; color: #FFB061; }
+body.dark td.sg-g { background: #333; color: #999; border-color: #555; }
+body.dark td.sg-g.on { background: #5a3a1a; color: #FFB061; }
+body.dark table.sg { background: #1f1f1f; }
+body.dark table.sg td, body.dark table.sg th { border-color: #4a4a4a; }
+body.dark td.sg-c { background: #262626; color: #e8e8e8; }
+body.dark td.sg-c.sel { box-shadow: inset 0 0 0 9999px var(--fill-bg, rgba(255,154,61,.22)); }
+body.dark td.sg-c.act { outline-color: #FF9A3D; }
+body.dark .sg-input { background: #333; color: #eee; border-color: #FF9A3D; }
+body.dark td.sg-c.cpm { outline-color: #FFB061; }
+body.dark .gridwrap { background: #1a1a1a; }
+body.dark .statusbar { background: linear-gradient(#2d2d2d,#262626); border-color: #444; color: #bbb; }
+body.dark .zb { background: #3a3a3a; border-color: #555; color: #ddd; }
+body.dark .sg-ctx, body.dark .ctx-flyout { background: #2d2d2d; border-color: #555; color: #ddd; }
+body.dark .ctx-it:hover { background: #4a3522; }
+body.dark .ctx-sep { background: #444; }
+body.dark .ctx-chip { background: #3a3a3a; border-color: #555; color: #ddd; }
+body.dark .ctx-rowlab { color: #999; }
+body.dark .dlg { background: #2d2d2d; color: #ddd; }
+body.dark .dlg .bd input, body.dark .dlg input[type="datetime-local"] { background: #333; border-color: #555; color: #ddd; }
+body.dark .dlg .ft { border-color: #444; }
+body.dark .vlist, body.dark .upd-list { border-color: #444; }
+body.dark .vrow, body.dark .upd-it { border-color: #3a3a3a; }
+body.dark .vrow .mini { background: #3a3a3a; border-color: #555; color: #ddd; }
+body.dark .keys-tb th { background: #4a3522; color: #FFB061; }
+body.dark .keys-tb td { border-color: #3a3a3a; }
+body.dark .keys-tb td:first-child { color: #9ecbff; }
+body.dark .sg-pick { background: #2d2d2d; color: #ddd; }
+body.dark .pk-q { background: #333; border-color: #555; color: #ddd; }
+body.dark .pk-it { border-color: #3a3a3a; }
+body.dark .pk-it:hover { background: #4a3522; }
+body.dark .pk-name { color: #ccc; }
+body.dark .pk-note { background: #262626; border-color: #444; color: #999; }
+body.dark .sg-pricepop { background: #2d2d2d; border-color: #555; color: #ddd; }
+body.dark .pp-row { color: #bbb; }
+body.dark #cbPanel { background: #2d2d2d; }
+body.dark .cb-body { background: #262626; }
+body.dark .cb-msg.bot { background: #333; border-color: #4a3a2a; color: #ddd; }
+body.dark .cb-chips, body.dark .cb-foot { background: #2d2d2d; }
+body.dark .cb-chips-x { background: #2d2d2d; color: #F49A50; box-shadow: -8px 0 8px -4px #2d2d2d; }
+body.dark .cb-chips-x:hover { background: #3a3a3a; }
+body.dark #cbInp { background: #333; border-color: #555; color: #ddd; }
+body.dark .cb-cfg { background: #262626; border-color: #444; }
+body.dark .cb-cfg input { background: #333 !important; border-color: #555 !important; color: #ddd !important; }
+body.dark .cb-cfg-note { background: #2d2d2d; border-color: #555; color: #999; }
+body.dark .al-ic i { background: #ccc; }
+body.dark td.sg-hint { background: #2d2d2d; color: #c9a87a; border-color: #5a4a36; }
+
+
+/* ปุ่มจัดแนวตั้ง (ชิดบน/กลาง/ล่าง) */
+.va-ic { display: inline-block; width: 14px; height: 13px; border: 1px solid #888; border-radius: 2px; position: relative; }
+.va-ic i { position: absolute; left: 2px; right: 2px; height: 2px; background: #444; border-radius: 1px; }
+.va-ic.t i { top: 2px; }
+.va-ic.m i { top: 5px; }
+.va-ic.b i { bottom: 2px; }
+body.dark .va-ic { border-color: #777; }
+body.dark .va-ic i { background: #ccc; }
+
+
+/* ฟอนต์ dropdown บน toolbar — ให้เข้าชุดกับปุ่มอื่น */
+#fontFam { height: 28px; width: 108px; border: 1px solid #c4c4c4; border-radius: 4px; background: #fff;
+  font-family: inherit; font-size: 12px; font-weight: 700; color: #222; padding: 0 4px; cursor: pointer; }
+#fontFam:hover { border-color: #F47C20; background: #FFF3E6; }
+body.dark #fontFam { background: #3a3a3a; border-color: #555; color: #ddd; }
+body.dark #fontFam:hover { border-color: #F47C20; background: #4a3522; }
+
+
+/* ⋯ เครื่องมือเพิ่มเติม */
+.morepop { width: 215px; display: none; flex-direction: column; gap: 5px; right: 0; left: auto; max-height: calc(100vh - 96px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.morepop.open { display: flex; }
+.morepop .btn { width: 100%; justify-content: flex-start; }
+.morepop .btn .tx { display: inline !important; }
+body.dark .swpop { background: #2d2d2d; border-color: #555; color: #ddd; }
+body.dark .swpop .lbl { color: #999; }
+body.dark .bd-it:hover, body.dark .ctx-it:hover { background: #4a3522; }
+body.dark .bd-it { color: #ddd; }
+
+
+/* ---------- กระชับ 2 แถว ---------- */
+.ribbon { flex-wrap: nowrap; overflow-x: auto; padding: 3px 8px; scrollbar-width: thin; }
+.ribbon .ttl small { display: none; }
+.ribbon .grp { height: 34px; padding: 0 4px; flex: none; }
+.fxbar { flex-wrap: wrap; gap: 6px; }
+#fx { flex: 1 1 160px; min-width: 120px; }
+.fltbar { display: contents; }
+.fltbar .flt-q { flex: 0 1 210px; max-width: 210px; }
+#saveState { margin-left: 0; }
+.fxbar #saveState { margin-left: auto; }
+
+/* เส้นขอบ: สี & ลายเส้น */
+.bd-w { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; border: 1px solid #c4c4c4; border-radius: 6px; padding: 5px 9px; font-size: 10.5px; cursor: pointer; font-family: inherit; color: #333; background: #fff; }
+.bd-w i { display: block; width: 28px; background: var(--bd-prev, #000); border-radius: 1px; }
+.bd-w:hover { border-color: #F47C20; }
+.bd-w.on { background: #FFF3E6; color: #C75B00; border-color: #F47C20; font-weight: 700; box-shadow: 0 0 0 1px #F47C20 inset; }
+body.dark .bd-w { background: #333; border-color: #555; color: #ddd; }
+body.dark .bd-w.on { background: #3a2c1d; }
+.bd-opts { display: flex; gap: 5px; margin: 2px 0 6px; }
+.bd-c { width: 22px; height: 18px; border-radius: 3px; border: 1px solid #999; cursor: pointer; display: inline-block; }
+.bd-c.on { outline: 2px solid #F47C20; outline-offset: 1px; }
+.bd-s { border: 1px solid #ddd; border-radius: 4px; padding: 1px 9px; cursor: pointer; font-family: Consolas, monospace; font-size: 12px; }
+.bd-s.on { border-color: #F47C20; background: #FFF3E6; }
+body.dark .bd-s { border-color: #555; color: #ddd; }
+body.dark .bd-s.on { background: #4a3522; }
+
+/* ✓ บันทึกแล้ว — เขียวอ่อนสดใส */
+#saveState.clean { color: #16c060 !important; font-weight: 700; }
+body.dark #saveState.clean { color: #3ee07f !important; }
+
+
+/* เทรนส้ม-ดำ: โลโก้แบรนด์ + ชิป */
+.ribbon .logo { background: #1f1f1f; color: #FF9A3D; border: 2px solid #F47C20; }
+.ribbon .ttl { color: #1f1f1f; font-weight: 800; }
+body.dark .ribbon .ttl { color: #FF9A3D; }
+.schedchip { background: #1f1f1f; border-color: #1f1f1f; color: #FFB061; font-weight: 700; }
+.schedchip:hover { border-color: #F47C20; color: #FF9A3D; box-shadow: 0 2px 8px rgba(244,124,32,.35); }
+.schedchip.hasdate { background: #F47C20; border-color: #1f1f1f; color: #1f1f1f; }
+
+
+/* แยกสีหัวคอลัมน์ (ส้มอ่อน) กับเลขแถว (เทา) ให้สังเกตง่าย */
+.sg-abc th, th.sg-h { background: var(--colhdr-bg, #FFE3C2); color: var(--colhdr-fg, #8a4a0a); border-color: #ecc79b; }
+/* เส้นขอบบน-ล่างหัวคอลัมน์: ใช้ box-shadow เพื่อให้ติดอยู่เสมอตอนเลื่อน (border ปกติจะหายเพราะ sticky + border-collapse) */
+.sg-abc th, th.sg-h { box-shadow: inset 0 -1.5px 0 #b9b9b9, inset 0 1px 0 #c9c9c9; }
+th.sg-h.cmbound { box-shadow: inset 0 -2px 0 #15A34A, inset 0 1px 0 #c9c9c9; }
+.sg-abc th.abc-corner, .sg-corner { background: #F5D9B8 !important; }
+td.sg-g { background: var(--rowhdr-bg, #EFEFEF); color: var(--rowhdr-fg, #777); border-color: #d5d5d5; }
+body.dark .sg-abc th, body.dark th.sg-h { background: #4a3522; color: #FFB061; border-color: #5a4228; box-shadow: inset 0 -1.5px 0 #6a5238, inset 0 1px 0 #5a4228; }
+body.dark td.sg-g { background: #2f2f2f; color: #999; border-color: #4a4a4a; }
+
+/* ช่องสูตร fx ไม่ยาวเกิน */
+#fx { max-width: 430px; }
+
+
+/* ย้าย fx ขึ้น ribbon · ช่องค้นหาขึ้นมาแทนแถว P11 เดิม */
+.ribbon { flex-wrap: wrap; overflow-x: visible; }
+.grp-fx { flex: 1 1 230px; gap: 5px; }
+.grp-fx #fx { flex: 1 1 150px; min-width: 130px; max-width: 460px; height: 28px; }
+.grp-fx .namebox { height: 28px; width: 56px; flex: none; }
+.fxbar > .sheetbar { order: -1; }
+.fxbar > .schedchip { order: 4; }
+.fxbar > #saveState { order: 6; margin-left: auto; }
+
+
+/* ชิปเวลา + สถานะเซฟ ย้ายขึ้น ribbon ขวาบน */
+.ribbon { position: relative; }
+.grp-status { position: absolute; left: 70px; top: 36px; right: auto; margin-left: 0; border-right: none !important;
+  gap: 4px; z-index: 6; width: 230px; flex-wrap: wrap; justify-content: flex-start; align-content: flex-start; }
+.grp-status .schedchip { font-size: 10px; padding: 0 8px; height: 20px; border-radius: 999px; }
+.grp-status .dbsrc { font-size: 9px; padding: 0 7px; height: 20px; }
+.grp-status .dbsrc-dot { width: 6px; height: 6px; }
+.grp-status #saveState { font-size: 10px; width: 100%; margin-top: 1px; line-height: 1.1; }
+.ribbon .brand { position: absolute; left: 8px; top: 5px; }
+/* กันแถวแรกชนชิป: เว้นที่ขวาให้กลุ่ม fx */
+.grp-fx #fx { max-width: 300px; }
+.grp-fx { margin-right: 300px; }
+.grp-status #saveState { font-size: 11.5px; white-space: nowrap; }
+
+
+/* สีกำหนดเอง + สีล่าสุดที่จำไว้ */
+.cust-row { margin-top: 8px; border-top: 1px dashed #e0d5c5; padding-top: 7px; }
+.cust-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #C75B00; cursor: pointer; font-weight: 600; }
+.cust-pick input[type="color"] { width: 26px; height: 22px; border: 1px solid #c4c4c4; border-radius: 4px; padding: 0; cursor: pointer; background: #fff; }
+.cust-recent { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.cust-recent .rsw { width: 20px; height: 18px; }
+body.dark .cust-row { border-color: #555; }
+body.dark .cust-pick { color: #FFB061; }
+
+/* ===== ฟังก์ชันเลือกสีแบบรวม (cf) — สีหลัก + จานสีของฉัน + ลากทับ + ตัวเลือกสี ===== */
+.cf { display: block; }
+.cf-lbl { font-size: 11px; color: #666; margin: 4px 0 4px; }
+.cf-lbl small { opacity: .55; font-weight: 400; }
+.cf-main, .cf-pal { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 4px; }
+.cf-sw { width: 22px; height: 18px; border-radius: 3px; border: 1px solid #999; cursor: pointer; flex: none; box-sizing: border-box; display: inline-block; }
+.cf-sw.on { outline: 2px solid #F47C20; outline-offset: 1px; }
+.cf-fontsw { display: grid; place-items: center; font-weight: 800; font-size: 12px; line-height: 1; }
+.cf-none { background: #fff; position: relative; }
+.cf-none::after { content: ''; position: absolute; inset: 2px; background: linear-gradient(45deg, transparent 44%, #e03 45%, #e03 55%, transparent 56%); }
+.cf-empty { border: 1px dashed #cfcfcf; cursor: default; background: repeating-conic-gradient(#f4f4f4 0% 25%, #fff 0% 50%) 50% / 8px 8px; }
+.cf-psw { cursor: grab; }
+.cf-psw:active { cursor: grabbing; }
+.cf-psw.cf-dragging { opacity: .4; }
+.cf-chooser { position: relative; overflow: hidden; display: block;
+  background: conic-gradient(from 90deg, #f44, #fb3, #fd0, #6c3, #3bd, #36f, #93f, #f3a, #f44); }
+.cf-chooser input[type="color"] { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); opacity: 0; border: 0; padding: 0; cursor: pointer; }
+.cf-chooser:hover, .cf-none:hover { outline: 2px solid #F47C20; outline-offset: 1px; }
+.cf-sw.cf-drop { outline: 2px dashed #F47C20; outline-offset: 2px; transform: scale(1.12); transition: transform .1s; }
+body.dark .cf-lbl { color: #999; }
+body.dark .cf-none { background: #2d2d2d; }
+body.dark .cf-empty { border-color: #555; background: repeating-conic-gradient(#3a3a3a 0% 25%, #2d2d2d 0% 50%) 50% / 8px 8px; }
+
+/* เส้นขอบ: จานสีของฉัน — 7 สี + ช่องเลือกสี (8 ช่อง · ขนาดเท่าแถวสีด้านบน) · คลิกขวาลบสี */
+.bd-mypal { display: flex; gap: 5px; margin: 4px 0 6px; flex-wrap: nowrap; }
+.bd-mypal .rsw { width: 22px; height: 18px; border-radius: 3px; border: 1px solid #999; cursor: grab; flex: none; }
+.bd-mypal .rsw:active { cursor: grabbing; }
+.bd-mypal .rsw.dragging { opacity: .4; }
+.bd-mypal .rsw.on { outline: 2px solid #F47C20; outline-offset: 1px; }
+#bdColors .bd-c.drop-hot { outline: 2px dashed #F47C20; outline-offset: 2px; transform: scale(1.12); transition: transform .1s; }
+.bd-slot-empty { width: 22px; height: 18px; border-radius: 3px; border: 1px dashed #cfcfcf; flex: none; background:
+  repeating-conic-gradient(#f4f4f4 0% 25%, #fff 0% 50%) 50% / 8px 8px; }
+.bd-chooser { width: 22px; height: 18px; border-radius: 3px; border: 1px solid #999; cursor: pointer; flex: none;
+  position: relative; overflow: hidden; display: block;
+  background: conic-gradient(from 90deg, #f44, #fb3, #fd0, #6c3, #3bd, #36f, #93f, #f3a, #f44); }
+.bd-chooser input[type="color"] { position: absolute; inset: -4px; width: calc(100% + 8px); height: calc(100% + 8px); opacity: 0; border: 0; padding: 0; cursor: pointer; }
+.bd-chooser:hover { outline: 2px solid #F47C20; outline-offset: 1px; }
+body.dark .bd-slot-empty { border-color: #555; background: repeating-conic-gradient(#3a3a3a 0% 25%, #2d2d2d 0% 50%) 50% / 8px 8px; }
+body.dark .bd-addbtn { background: #3a2c1d; border-color: #5a4628; color: #FFB061; }
+
+/* ช่อง A1 สั้นลง */
+.grp-fx .namebox { width: 42px; font-size: 11px; }
+
+
+/* ปุ่มแบบยาว (คลิกขวาที่ปุ่มเพื่อสลับ) */
+.ribbon .btn.wide .tx { display: inline !important; }
+.ribbon .btn[draggable="true"] { cursor: grab; }
+.ribbon .btn[draggable="true"]:active { cursor: grabbing; }
+/* ปุ่ม dropdown (สีอักษร/เทสี/เส้นขอบ) — สไตล์ split เหมือนวิดเจ็ตขนาดฟอนต์: ไอคอน | เส้นแบ่ง | โซนลูกศร ▾ สีส้ม */
+.fxbar > #btnFont, .fxbar > #btnFill, .fxbar > #btnBorder {
+  width: 46px !important; min-width: 46px !important; max-width: 46px !important;
+  padding: 0 !important; gap: 0 !important; overflow: hidden; align-items: stretch;
+}
+.fxbar > #btnFont > .ic, .fxbar > #btnFill > .ic, .fxbar > #btnBorder > .ic {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+}
+.fxbar > #btnFont > .fc-caret, .fxbar > #btnFill > .fc-caret, .fxbar > #btnBorder > .fc-caret {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 15px; margin: 0; padding: 0;
+  border-left: 1px solid #c4c4c4; background: #FFF3E6; color: #C75B00; font-size: 11px;
+}
+.fxbar > #btnFont:hover > .fc-caret, .fxbar > #btnFill:hover > .fc-caret, .fxbar > #btnBorder:hover > .fc-caret { background: #FFE0C2; }
+body.dark .fxbar > #btnFont > .fc-caret, body.dark .fxbar > #btnFill > .fc-caret, body.dark .fxbar > #btnBorder > .fc-caret {
+  border-left-color: #555; background: #4a3522; color: #FFB061;
+}
+
+
+/* กันการลากแล้วไฮไลต์ "ข้อความ" ติดทั้งแถว (native text selection สีน้ำเงินของเบราว์เซอร์)
+   — การลากในตารางคือการเลือกช่องเท่านั้น */
+.gridwrap, table.sg, table.sg td, table.sg th, .sg-abc, .ribbon, .fxbar, .fltbar, .statusbar {
+  -webkit-user-select: none; -moz-user-select: none; user-select: none;
+}
+/* ช่องพิมพ์ยังเลือก/ลากข้อความได้ปกติ */
+.sg-input, #fx, .flt-q, .pk-q, #cbInp, input, textarea, select {
+  -webkit-user-select: text; -moz-user-select: text; user-select: text;
+}
+
+
+/* ปุ่มขนาดอักษร: ตัว A ดำ · เฉพาะลูกศรมีสี (▲เขียว ▼ส้ม) */
+#btnFsUp, #btnFsDn { color: #222 !important; gap: 2px; }
+.fs-a { font-weight: 800; font-size: 14px; line-height: 1; }
+.fs-a.sm { font-size: 11px; }
+.fs-arr { font-size: 9px; line-height: 1; }
+.fs-arr.fs-up { color: #0a8f3c; }
+.fs-arr.fs-dn { color: #e67e22; }
+body.dark #btnFsUp, body.dark #btnFsDn { color: #ddd !important; }
+/* ลูกศรแจ้งปรับราคา: ขึ้นเขียว · ลงส้ม */
+.arr-dn { color: #e67e22 !important; }
+
+
+/* ⌄ ย่อ/ขยายชุดเครื่องมือแต่ละกลุ่ม */
+.grp-tg { width: 26px; height: 34px; border: none; background: transparent; color: #c9985f; cursor: pointer;
+  font-size: 18px; padding: 0; flex: none; line-height: 1; border-radius: 5px; }
+.grp-tg:hover { color: #F47C20; background: #FFE8D1; }
+.ribbon .grp.clps > *:not(.grp-tg) { display: none !important; }
+.ribbon .grp.clps { padding: 0 2px; min-width: 30px; }
+.ribbon .grp.clps .grp-tg { transform: rotate(-90deg); color: #F47C20; }
+body.dark .grp-tg { color: #8a6d4a; }
+body.dark .grp-tg:hover, body.dark .ribbon .grp.clps .grp-tg { color: #FF9A3D; background: #4a3522; }
+
+
+/* ซ่อนกลุ่มที่ว่างเปล่า (ปุ่มถูกลากย้ายออกหมด) ไม่ให้เหลือแถบเปล่า */
+.ribbon .grp:not(:has(.btn)):not(:has(select)):not(.grp-status) { display: none; }
+
+
+/* 🔌 API bridge */
+.api-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #999; margin-left: 8px; }
+.api-dot.online { background: #2ecc71; box-shadow: 0 0 6px #2ecc71; }
+.api-dot.connecting, .api-dot.retry { background: #f1c40f; }
+.api-dot.error { background: #e74c3c; }
+.api-lab { font-size: 11px; color: #888; margin-bottom: 3px; }
+body.dark #apiUrl, body.dark #apiReadTok, body.dark #apiAdminTok { background: #333; border-color: #555; color: #ddd; }
+
+
+/* ไอคอนปุ่ม ขนาดยาง (ยางวงกลม) vs รุ่นยาง (ป้ายแท็ก) — ไอคอนล้วน ไม่ใส่ชื่อ */
+.ic-svg { width: 16px; height: 16px; display: block; }
+body.dark .ic-svg .mainshape { stroke: #ddd; }
+body.dark .ic-svg .mainfill { fill: #ddd; }
+
+
+/* โลโก้ร้าน (ลากรูปมาวางได้) — ใหญ่สวยพอดีแถบ เห็นเต็มรูปไม่ถูกครอบตัด */
+.logo-img { width: 52px; height: 52px; flex: none; font-size: 9px;
+  background: #fff; border: 1.5px solid #F5C89B; border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(244,124,32,.18); }
+.logo-img:hover { border-color: #F47C20; }
+body.dark .logo-img { background: #fff; border-color: #6b4a28; }
+
+
+/* ---------- รูปลอยบนตาราง ---------- */
+#imgLayer { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.gridwrap { position: relative; }
+.imgw { position: absolute; cursor: move; user-select: none; }
+.imgw img { width: 100%; height: 100%; display: block; pointer-events: none; }
+.imgw .imgclip { position: absolute; inset: 0; overflow: hidden; }
+.imgw .imgclip img { position: absolute; display: block; pointer-events: none; }
+.imgw.on { outline: 2px solid #F47C20; outline-offset: 1px; }
+/* เส้นประวิ่งรอบรูปที่คัดลอก/ตัดไว้ — ฟีล Excel (Esc = ยกเลิก, Ctrl+V = วาง) */
+.imgw.copymark { outline: 2.5px dashed var(--cpm-color, #0a8f3c); outline-offset: 2px; animation: cpblink 1s linear infinite; }
+.imgw.cutmark { outline: 2.5px dashed #e67e22; outline-offset: 2px; animation: cpblink 1s linear infinite; }
+.imh { position: absolute; z-index: 5; }
+.imh.rs { width: 11px; height: 11px; background: #fff; border: 2px solid #F47C20; border-radius: 3px; }
+.imh.rs.nw { left: -6px; top: -6px; cursor: nwse-resize; }
+.imh.rs.ne { right: -6px; top: -6px; cursor: nesw-resize; }
+.imh.rs.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.imh.rs.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+.imh.rot { left: 50%; top: -30px; width: 20px; height: 20px; margin-left: -10px; background: #0a8f3c;
+  border: 2px solid #fff; border-radius: 50%; cursor: grab; box-shadow: 0 1px 5px rgba(0,0,0,.35);
+  color: #fff; font-size: 13px; font-weight: 700; line-height: 16px; text-align: center; }
+.imh.rot:active { cursor: grabbing; }
+.imh.rot::before { content: ''; position: absolute; left: 50%; top: 100%; height: 12px; border-left: 1.5px dashed #0a8f3c; }
+.imh.cp { background: #0a8f3c; border: 2px solid #fff; border-radius: 999px; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.imh.cp.t { left: 50%; top: -5px; width: 26px; height: 9px; margin-left: -13px; cursor: ns-resize; }
+.imh.cp.b { left: 50%; bottom: -5px; width: 26px; height: 9px; margin-left: -13px; cursor: ns-resize; }
+.imh.cp.l { top: 50%; left: -5px; width: 9px; height: 26px; margin-top: -13px; cursor: ew-resize; }
+.imh.cp.r { top: 50%; right: -5px; width: 9px; height: 26px; margin-top: -13px; cursor: ew-resize; }
+@media print { .imh { display: none !important; } .imgw { outline: none !important; } }
+
+/* ---------- โหมดตัดภาพแบบ Excel (กรอบขอบเขต + กริด + หรี่ส่วนนอก) ---------- */
+.imgw.cropping { cursor: default; }
+.imgw .cropfull { width: 100%; height: 100%; display: block; pointer-events: none; }
+.crop-shade { position: absolute; background: rgba(0,0,0,.5); pointer-events: none; z-index: 3; }
+.crop-box { position: absolute; box-sizing: border-box; border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.25); cursor: move; z-index: 4; }
+.crop-box .cg { position: absolute; background: rgba(255,255,255,.5); pointer-events: none; }
+.crop-box .cg.v1 { left: 33.33%; top: 0; bottom: 0; width: 1px; }
+.crop-box .cg.v2 { left: 66.66%; top: 0; bottom: 0; width: 1px; }
+.crop-box .cg.h1 { top: 33.33%; left: 0; right: 0; height: 1px; }
+.crop-box .cg.h2 { top: 66.66%; left: 0; right: 0; height: 1px; }
+.crop-box .ch { position: absolute; z-index: 5; background: #F47C20; border: 1.5px solid #fff; border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.crop-box .ch.c { width: 13px; height: 13px; }
+.crop-box .ch.c.nw { left: -7px; top: -7px; cursor: nwse-resize; }
+.crop-box .ch.c.ne { right: -7px; top: -7px; cursor: nesw-resize; }
+.crop-box .ch.c.sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.crop-box .ch.c.se { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.crop-box .ch.e.t { left: 50%; top: -5px; width: 24px; height: 8px; margin-left: -12px; cursor: ns-resize; }
+.crop-box .ch.e.b { left: 50%; bottom: -5px; width: 24px; height: 8px; margin-left: -12px; cursor: ns-resize; }
+.crop-box .ch.e.l { top: 50%; left: -5px; width: 8px; height: 24px; margin-top: -12px; cursor: ew-resize; }
+.crop-box .ch.e.r { top: 50%; right: -5px; width: 8px; height: 24px; margin-top: -12px; cursor: ew-resize; }
+@media print { .crop-shade, .crop-box { display: none !important; } }
+
+/* ---------- หน้าต่างตั้งค่า AI ตกแต่งรูป ---------- */
+.ai-cfg { position: fixed; z-index: 130; left: 50%; top: 12%; transform: translateX(-50%);
+  width: 480px; max-width: 94vw; max-height: 80vh; background: #fff; border-radius: 12px;
+  box-shadow: 0 22px 60px rgba(0,0,0,.4); display: none; flex-direction: column; overflow: hidden; }
+.ai-head { background: linear-gradient(135deg, #6a3df4, #9a3df4); color: #fff; font-weight: 800;
+  padding: 11px 14px; display: flex; justify-content: space-between; cursor: move; }
+.ai-x { cursor: pointer; opacity: .85; }
+.ai-x:hover { opacity: 1; }
+.ai-body { padding: 12px 14px; overflow: auto; display: flex; flex-direction: column; gap: 9px; }
+.ai-note { font-size: 12px; color: #777; }
+.ai-row { border: 1.5px solid #e3e0ef; border-radius: 9px; padding: 9px 11px; background: #faf9ff; }
+.ai-row.on { border-color: #9a3df4; background: #f6f1ff; }
+.ai-rowtop { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.ai-prio { width: 22px; height: 22px; border-radius: 50%; background: #6a3df4; color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+.ai-stat { width: 14px; height: 14px; border-radius: 50%; cursor: pointer; flex: none; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.18); }
+.ai-stat.unknown { background: #c4c4c4; }
+.ai-stat.checking { background: #f0ad4e; animation: aiBlink 1s linear infinite; }
+.ai-stat.ok { background: #2ecc71; }
+.ai-stat.err { background: #e74c3c; }
+@keyframes aiBlink { 50% { opacity: .35; } }
+.ai-statpop { position: fixed; z-index: 140; max-width: 320px; background: #fff; border: 1px solid #ddd;
+  border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,.28); padding: 11px 13px; font-size: 12.5px; color: #444; }
+.ai-pop-t { font-weight: 800; margin-bottom: 5px; }
+.ai-pop-m { line-height: 1.55; white-space: normal; }
+.ai-pop-re { margin-top: 9px; border: 1px solid #cfc8e6; background: #f6f1ff; color: #6a3df4; border-radius: 7px; padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.ai-pop-re:hover { background: #6a3df4; color: #fff; }
+body.dark .ai-statpop { background: #2d2d2d; border-color: #555; color: #ddd; }
+
+/* ---------- หน้าต่างแก้รูปด้วย Photopea (ฝังเต็มจอ) ---------- */
+.ppx-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(20,20,24,.92); display: none; flex-direction: column; }
+.ppx-bar { display: flex; align-items: center; gap: 14px; padding: 9px 14px; background: #1f1f24; color: #eee; border-bottom: 1px solid #333; }
+.ppx-title { font-weight: 800; font-size: 14px; }
+.ppx-hint { font-size: 12px; color: #9a9aa2; flex: 1; }
+.ppx-actions { display: flex; gap: 8px; }
+.ppx-bar .btn { font-family: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer; border: 1px solid #444; background: #2c2c33; color: #eee; }
+.ppx-bar .ppx-save { background: #0a8f3c; border-color: #0a8f3c; color: #fff; font-weight: 700; }
+.ppx-bar .ppx-save:hover { background: #0b7f37; }
+.ppx-bar .ppx-close:hover { background: #3a3a42; }
+.ppx-frame { flex: 1; min-height: 0; }
+.ppx-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+.ai-en { font-size: 12.5px; color: #444; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.ai-name { font-size: 13px; font-weight: 700; color: #333; flex: 1; }
+.ai-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.ai-badge.b1 { background: #e6f7ec; color: #0a8f3c; }
+.ai-badge.b2 { background: #eef2ff; color: #3554d1; }
+.ai-badge.b3 { background: #fef0e6; color: #c75b00; }
+.ai-move { display: flex; gap: 3px; }
+.ai-mv { width: 24px; height: 24px; border: 1px solid #cfc8e6; background: #fff; border-radius: 6px; cursor: pointer; color: #6a3df4; font-size: 11px; }
+.ai-mv:hover:not([disabled]) { background: #6a3df4; color: #fff; }
+.ai-mv[disabled] { opacity: .3; cursor: default; }
+.ai-url { width: 100%; margin-top: 8px; height: 32px; border: 1px solid #cfc8e6; border-radius: 7px; padding: 0 10px; font-family: inherit; font-size: 12.5px; box-sizing: border-box; }
+.ai-hint { margin-top: 6px; font-size: 11.5px; color: #999; }
+.ai-contract { font-size: 11.5px; color: #777; background: #f6f6f8; border-radius: 8px; padding: 9px 11px; line-height: 1.6; }
+.ai-contract code { background: #eceaf4; color: #5a3ad1; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+.ai-foot { display: flex; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid #eee; }
+body.dark .ai-cfg { background: #2d2d2d; color: #ddd; }
+body.dark .ai-row { background: #262433; border-color: #46415c; }
+body.dark .ai-row.on { background: #2d2740; }
+body.dark .ai-name { color: #e6e2f5; }
+body.dark .ai-url, body.dark .ai-mv { background: #333; border-color: #555; color: #cbb9ff; }
+body.dark .ai-contract { background: #262633; color: #aaa; }
+body.dark .ai-foot { border-color: #444; }
+
